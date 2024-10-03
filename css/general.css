@@ -28,13 +28,13 @@
 	}
 	.progress_bar {
 		background-color: var(--color-back);
-		height: 20px;
+		height: 18px;
 		margin-top: 12px;
 	}
 	.progress_bar_inner {
 		background-color: var(--color-accent);
 		height: 100%;
-		width: 0px;
+		width: calc(100% * var(--progress));
 	}
 	.accent_color {
 		color: var(--color-accent);
@@ -768,6 +768,10 @@
 	.contextMenu .menu_search_bar {
 		padding: 0;
 		display: flex;
+		position: sticky;
+		top: 0;
+		background-color: inherit;
+		border-bottom: 2px solid var(--color-menu_separator);
 	}
 	.menu_search_bar > input {
 		color: inherit;
