@@ -333,7 +333,9 @@ class Plugin {
 		this.tags.safePush('Local');
 
 		if (isApp) {
-			let content = await runPluginFile(file.path, this.id);
+			let content = await runPluginFile(file.path, this.id).catch((error) => {
+				console.error(error);
+			});
 			if (content) {
 				if (window.plugin_data) {
 					scope.id = (plugin_data && plugin_data.id)||pathToName(file.path)
@@ -629,8 +631,12 @@ class Plugin {
 			this.details[key + '_full'] = date.full;
 		}
 		if (this.source == 'store') {
-			if (!this.details.bug_tracker) this.details.bug_tracker = `https://github.com/JannisX11/blockbench-plugins/issues/new?title=[${this.title}]`;
-			if (!this.details.repository) this.details.repository = `https://github.com/JannisX11/blockbench-plugins/tree/master/plugins/${this.id + (this.new_repository_format ? '' : '.js')}`;
+			if (!this.details.bug_tracker) {
+				this.details.bug_tracker = `https://github.com/JannisX11/blockbench-plugins/issues/new?title=[${this.title}]`;
+			}
+			if (!this.details.repository) {
+				this.details.repository = `https://github.com/JannisX11/blockbench-plugins/tree/master/plugins/${this.id + (this.new_repository_format ? '' : '.js')}`;
+			}
 
 			let github_path = (this.new_repository_format ? (this.id+'/'+this.id) : this.id) + '.js';
 			let commit_url = `https://api.github.com/repos/JannisX11/blockbench-plugins/commits?path=plugins/${github_path}`;
@@ -717,7 +723,7 @@ Plugin.prototype.menu = new Menu([
 		icon: 'folder',
 		condition: plugin => (isApp && plugin.source == 'file'),
 		click(plugin) {
-			shell.showItemInFolder(plugin.path);
+			showItemInFolder(plugin.path);
 		}
 	},
 ]);
@@ -919,17 +925,7 @@ BARS.defineActions(function() {
 				isMobile: Blockbench.isMobile,
 			},
 			computed: {
-				plugin_search() {
-					let filtered_items = this.items.filter(item => (this.tab == 'installed') == item.installed);
-					if (!this.search_term) return filtered_items;
-					let fuse = new Fuse(filtered_items, {
-						keys: ['id', 'title', 'description', 'author', 'tags'],
-						threshold: 0.5,
-						ignoreLocation: true
-					})
-					let result =  fuse.search(this.search_term);
-					return result.map(match => match.item);
-				},
+				plugin_search()
 				suggested_rows() {
 					let tags = ["Animation"];
 					this.items.forEach(plugin => {
@@ -1281,12 +1277,12 @@ BARS.defineActions(function() {
 							<div class="tool" v-if="!isMobile" @click="selectPlugin(null);"><i class="material-icons icon">home</i></div>
 							<search-bar id="plugin_search_bar" v-model="search_term" @input="setPage(0)"></search-bar>
 						</div>
-						<div class="tab_bar">
+						<div class="tab_bar" v-if="!search_term">
 							<div :class="{open: tab == 'installed'}" @click="setTab('installed')">${tl('dialog.plugins.installed')}</div>
 							<div :class="{open: tab == 'available'}" @click="setTab('available')">${tl('dialog.plugins.available')}</div>
 						</div>
-						<ul class="list" id="plugin_list" ref="plugin_list">
-							<li v-for="plugin in viewed_plugins" :plugin="plugin.id" :class="{plugin: true, testing: plugin.fromFile, selected: plugin == selected_plugin, disabled_plugin: plugin.disabled, incompatible: plugin.isInstallable() !== true}" @click="selectPlugin(plugin)" @contextmenu="selectPlugin(plugin); plugin.showContextMenu($event)">
+						<ul class="list" :class="{paginated_list: pages.length > 1}" id="plugin_list" ref="plugin_list">
+							<li v-for="plugin in viewed_plugins" :plugin="plugin.id" :class="{plugin: true, testing: plugin.fromFile, selected: plugin == selected_plugin, disabled_plugin: plugin.disabled, installed_plugin: plugin.installed, disabled_plugin: plugin.disabled, incompatible: plugin.isInstallable() !== true}" @click="selectPlugin(plugin)" @contextmenu="selectPlugin(plugin); plugin.showContextMenu($event)">
 								<div>
 									<div class="plugin_icon_area">
 										<img v-if="plugin.hasImageIcon()" :src="plugin.getIcon()" width="48" height="48px" />
@@ -1296,6 +1292,7 @@ BARS.defineActions(function() {
 										<div class="title">{{ plugin.title || plugin.id }}</div>
 										<div class="author">{{ tl('dialog.plugins.author', [plugin.author]) }}</div>
 									</div>
+									<div v-if="plugin.installed && search_term" class="plugin_installed_tag">✓ ${tl('dialog.plugins.is_installed')}</div>
 								</div>
 								<div class="description">{{ plugin.description }}</div>
 								<ul class="plugin_tag_list">
@@ -1310,7 +1307,7 @@ BARS.defineActions(function() {
 						</ol>
 					</div>
 					
-					<div id="plugin_browser_page" v-if="selected_plugin">
+					<div id="plugin_browser_page" v-if="selected_plugin" :class="{plugin_disabled: selected_plugin.disabled, plugin_installed: selected_plugin.installed}">
 						<div v-if="isMobile" @click="selectPlugin(null);" class="plugin_browser_back_button">
 							<i class="material-icons icon">arrow_back_ios</i>
 							${tl('generic.navigate_back')}</div>

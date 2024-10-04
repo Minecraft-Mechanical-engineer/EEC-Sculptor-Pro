@@ -252,6 +252,18 @@ class Cube extends OutlinerElement {
 		}
 		return this;
 	}
+	selectLow(...args) {
+		let was_selected = this.selected;
+		super.selectLow(...args);
+		if (!was_selected && Cube.selected[0]) {
+			let other_selected_faces = UVEditor.selected_faces.slice();
+			let own_selected_faces = UVEditor.getSelectedFaces(this, true);
+			if (other_selected_faces?.length && !own_selected_faces?.length) {
+				own_selected_faces.replace(other_selected_faces);
+			}
+		}
+		return this;
+	}
 	size(axis, floored) {
 		var scope = this;
 		let epsilon = 0.0000001;
@@ -607,7 +619,7 @@ class Cube extends OutlinerElement {
 			vec.set(...coords.V3_subtract(this.origin));
 			vec.applyMatrix4( this.mesh.matrixWorld );
 			let arr = vec.toArray();
-			arr.V3_add(8, 8, 8);
+			arr.V3_add(8, 0, 8);
 			return arr;
 		})
 	}
@@ -684,55 +696,56 @@ class Cube extends OutlinerElement {
 		if (scope.autouv === 2) {
 			//Relative UV
 			var all_faces = ['north', 'south', 'west', 'east', 'up', 'down']
+			let offset = Format.centered_grid ? 8 : 0;
 			all_faces.forEach(function(side) {
 				var uv = scope.faces[side].uv.slice()
 				switch (side) {
 					case 'north':
 					uv = [
-						pw - scope.to[0],
+						pw - (scope.to[0]+offset),
 						ph - scope.to[1],
-						pw - scope.from[0],
+						pw - (scope.from[0]+offset),
 						ph - scope.from[1],
 					];
 					break;
 					case 'south':
 					uv = [
-						scope.from[0],
+						(scope.from[0]+offset),
 						ph - scope.to[1],
-						scope.to[0],
+						(scope.to[0]+offset),
 						ph - scope.from[1],
 					];
 					break;
 					case 'west':
 					uv = [
-						scope.from[2],
+						(scope.from[2]+offset),
 						ph - scope.to[1],
-						scope.to[2],
+						(scope.to[2]+offset),
 						ph - scope.from[1],
 					];
 					break;
 					case 'east':
 					uv = [
-						pw - scope.to[2],
+						pw - (scope.to[2]+offset),
 						ph - scope.to[1],
-						pw - scope.from[2],
+						pw - (scope.from[2]+offset),
 						ph - scope.from[1],
 					];
 					break;
 					case 'up':
 					uv = [
-						scope.from[0],
-						scope.from[2],
-						scope.to[0],
-						scope.to[2],
+						(scope.from[0]+offset),
+						(scope.from[2]+offset),
+						(scope.to[0]+offset),
+						(scope.to[2]+offset),
 					];
 					break;
 					case 'down':
 					uv = [
-						scope.from[0],
-						ph - scope.to[2],
-						scope.to[0],
-						ph - scope.from[2],
+						(scope.from[0]+offset),
+						ph - (scope.to[2]+offset),
+						(scope.to[0]+offset),
+						ph - (scope.from[2]+offset),
 					];
 					break;
 				}
@@ -939,6 +952,7 @@ class Cube extends OutlinerElement {
 				}
 			}});
 		}},
+		"randomize_marker_colors",
 		{name: 'menu.cube.texture', icon: 'collections', condition: () => !Format.single_texture && !Format.per_group_texture, children: function() {
 			var arr = [
 				{icon: 'crop_square', name: Format.single_texture_default ? 'menu.cube.texture.default' : 'menu.cube.texture.blank', click(cube) {
@@ -946,11 +960,27 @@ class Cube extends OutlinerElement {
 						obj.applyTexture(false, true)
 					}, 'texture blank', Format.per_group_texture ? 'all_in_group' : null)
 				}}
-			]
+			];
+			let applied_texture;
+			main_loop: for (let cube of Cube.selected) {
+				face_loop: for (let fkey in cube.faces) {
+					let texture = cube.faces[fkey].getTexture();
+					if (texture) {
+						if (!applied_texture) {
+							applied_texture = texture;
+						} else if (applied_texture != texture) {
+							applied_texture = null;
+							break main_loop;
+							break face_loop;
+						}
+					}
+				}
+			}
 			Texture.all.forEach(function(t) {
 				arr.push({
 					name: t.name,
 					icon: (t.mode === 'link' ? t.img : t.source),
+					marked: t == applied_texture,
 					click: function(cube) {
 						cube.forSelected(function(obj) {
 							obj.applyTexture(t, true)
@@ -962,6 +992,7 @@ class Cube extends OutlinerElement {
 		}},
 		'edit_material_instances',
 		'element_render_order',
+		'cube_light_emission',
 		new MenuSeparator('manage'),
 		'rename',
 		'toggle_visibility',
@@ -980,6 +1011,7 @@ new Property(Cube, 'string', 'name', {default: 'cube'});
 new Property(Cube, 'boolean', 'box_uv', {merge_validation: (value) => Format.optional_box_uv || value === Format.box_uv});
 new Property(Cube, 'boolean', 'rescale');
 new Property(Cube, 'boolean', 'locked');
+new Property(Cube, 'number', 'light_emission');
 new Property(Cube, 'enum', 'render_order', {default: 'default', values: ['default', 'behind', 'in_front']});
 
 OutlinerElement.registerType(Cube, 'cube');
@@ -1438,7 +1470,7 @@ BARS.defineActions(function() {
 			let group = getCurrentGroup();
 			if (group) {
 				base_cube.addTo(group)
-				base_cube.color = group.color;
+				if (settings.inherit_parent_color.value) base_cube.color = group.color;
 			}
 
 			if (Texture.all.length && Format.single_texture) {
@@ -1467,7 +1499,7 @@ BARS.defineActions(function() {
 
 			if (Group.selected) Group.selected.unselect()
 			base_cube.select()
-			Canvas.updateView({elements: [base_cube], element_aspects: {transform: true, geometry: true}})
+			Canvas.updateView({elements: [base_cube], element_aspects: {transform: true, geometry: true, faces: true}})
 			Undo.finishEdit('Add cube', {outliner: true, elements: selected, selection: true});
 			Blockbench.dispatchEvent( 'add_cube', {object: base_cube} )
 
@@ -1572,5 +1604,35 @@ BARS.defineActions(function() {
 		if (element) {
 			BarItems.element_render_order.set(element.render_order);
 		}
+	})
+
+	new NumSlider('cube_light_emission', {
+		category: 'edit',
+		condition: {features: ['java_cube_shading_properties']},
+		settings: {
+			min: 0, max: 15, default: 0,
+			show_bar: true
+		},
+		getInterval(event) {
+			return 1;
+		},
+		get() {
+			return Cube.selected[0]?.light_emission ?? 0;
+		},
+		change(modify) {
+			for (let cube of Cube.selected) {
+				cube.light_emission = modify(cube.light_emission);
+			}
+		},
+		onBefore() {
+			Undo.initEdit({elements: Cube.selected});
+		},
+		onAfter() {
+			Undo.finishEdit('Change cube light emission');
+		}
+	})
+	Blockbench.on('update_selection', () => {
+		let value = Cube.selected[0]?.light_emission ?? 0;
+		BarItems.cube_light_emission.setValue(value);
 	})
 })

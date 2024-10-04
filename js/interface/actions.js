@@ -823,6 +823,25 @@ class NumSlider extends Widget {
 							this.onAfter()
 						}
 					}
+				},
+				{
+					id: 'round',
+					name: 'menu.slider.reset_vector',
+					icon: 'replay',
+					condition: this.slider_vector instanceof Array,
+					click: () => {
+						if (typeof this.onBefore === 'function') {
+							this.onBefore()
+						}
+						for (let slider of this.slider_vector) {
+							let value = slider.settings?.default ?? 0;
+							slider.change(n => value);
+							slider.update();
+						}
+						if (typeof this.onAfter === 'function') {
+							this.onAfter()
+						}
+					}
 				}
 			]).open(event);
 		});
@@ -1764,16 +1783,15 @@ const BARS = {
 		//Extras
 			new KeybindItem('preview_select', {
 				category: 'navigate',
-				keybind: new Keybind({key: Blockbench.isTouch ? 0 : 1, ctrl: null, shift: null, alt: null})
+				keybind: new Keybind({key: Blockbench.isTouch ? 0 : 1},
+					{multi_select: 'ctrl', group_select: 'shift', loop_select: 'alt'}
+				),
+				variations: {
+					multi_select: {name: 'keybind.preview_select.multi_select'},
+					group_select: {name: 'keybind.preview_select.group_select'},
+					loop_select: {name: 'keybind.preview_select.loop_select'},
+				}
 			})
-			/*new KeybindItem('preview_select', {
-				category: 'navigate',
-				keybind: new Keybind({key: Blockbench.isTouch ? 0 : 1}, {
-					multiple: 'ctrl',
-					range: 'shift',
-					loop: 'alt',
-				})
-			})*/
 			new KeybindItem('preview_rotate', {
 				category: 'navigate',
 				keybind: new Keybind({key: 1})
@@ -1902,6 +1920,31 @@ const BARS = {
 				modes: ['edit'],
 				keybind: new Keybind({key: 's', alt: true}),
 			})
+			new Action('randomize_marker_colors', {
+				icon: 'fa-shuffle',
+				category: 'edit',
+				condition: {modes: ['edit' ], project: true},
+				click: function() {
+					let randomColor = function() { return Math.floor(Math.random() * markerColors.length)}
+					let elements = Outliner.selected.filter(element => element.setColor)
+					Undo.initEdit({outliner: true, elements: elements, selection: true})
+					Group.all.forEach(group => {
+						if (group.selected) {
+							let lastColor = group.color
+							// Ensure chosen group color is never the same as before
+							do group.color = randomColor();
+							while (group.color === lastColor)
+						}
+					})
+					elements.forEach(element => {
+						let lastColor = element.color
+						// Ensure chosen element color is never the same as before
+						do element.setColor(randomColor())
+						while (element.color === lastColor)
+					})
+					Undo.finishEdit('Change marker color')
+				}
+			})
 
 		//File
 			new Action('new_window', {
@@ -1917,7 +1960,7 @@ const BARS = {
 				category: 'file',
 				condition: () => {return isApp && (Project.save_path || Project.export_path)},
 				click: function () {
-					shell.showItemInFolder(Project.export_path || Project.save_path);
+					showItemInFolder(Project.export_path || Project.save_path);
 				}
 			})
 			new Action('reload', {
@@ -2238,6 +2281,8 @@ const BARS = {
 				'color_erase_mode',
 				'lock_alpha',
 				'painting_grid',
+				'image_tiled_view',
+				'image_onion_skin_view',
 			]
 		})
 		Toolbars.vertex_snap = new Toolbar({

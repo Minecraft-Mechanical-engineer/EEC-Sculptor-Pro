@@ -305,6 +305,10 @@ function loadDataFromModelMemory() {
 	Blockbench.dispatchEvent('load_from_recent_project_data', {data: project});
 }
 
+function showItemInFolder(path) {
+	ipcRenderer.send('show-item-in-folder', path);
+}
+
 //Window Controls
 function updateWindowState(e, type) {
 	let maximized = currentwindow.isMaximized();
@@ -319,6 +323,11 @@ currentwindow.on('ready-to-show', e => updateWindowState(e, 'load'));
 
 //Image Editor
 function changeImageEditor(texture, not_found) {
+	let app_file_extension = {
+		'win32': ['exe'],
+		'linux': [],
+		'darwin': ['app'],
+	};
 	new Dialog({
 		title: tl('message.image_editor.title'),
 		id: 'image_editor',
@@ -327,7 +336,7 @@ function changeImageEditor(texture, not_found) {
 			editor: {type: 'select', full_width: true, options: {
 				ps: Blockbench.platform == 'win32' ? 'Photoshop' : undefined,
 				gimp: 'GIMP',
-				pdn: Blockbench.platform == 'win324' ? 'Paint.NET' : undefined,
+				pdn: Blockbench.platform == 'win32' ? 'Paint.NET' : undefined,
 				other: 'message.image_editor.file'
 			}},
 			file: {
@@ -335,7 +344,7 @@ function changeImageEditor(texture, not_found) {
 				nocolon: true,
 				type: 'file',
 				file_type: 'Program',
-				extensions: ['exe', 'app', 'desktop', 'appimage'],
+				extensions: app_file_extension[Blockbench.platform],
 				description: 'message.image_editor.exe',
 				condition: result => result.editor == 'other'
 			}
@@ -728,11 +737,11 @@ ipcRenderer.on('update-available', (event, arg) => {
 		})
 
 	} else {
-		addStartScreenSection({
+		addStartScreenSection('update_notification', {
 			color: 'var(--color-back)',
 			graphic: {type: 'icon', icon: 'update'},
 			text: [
-				{type: 'h2', text: tl('message.update_notification.title')},
+				{type: 'h3', text: tl('message.update_notification.title')},
 				{text: tl('message.update_notification.message')},
 				{type: 'button', text: tl('generic.enable'), click: (e) => {
 					settings.automatic_updates.set(true);

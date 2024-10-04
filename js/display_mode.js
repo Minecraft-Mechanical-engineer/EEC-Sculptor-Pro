@@ -234,6 +234,7 @@ class refModel {
 		this.name = tl('display.reference.'+id);
 		this.id = id;
 		this.icon = options.icon || id;
+		this.condition = options.condition;
 		this.initialized = false;
 		this.pose_angles = {};
 
@@ -292,6 +293,11 @@ class refModel {
 					}
 				}
 				break;
+			case 'fox':
+				this.updateBasePosition = function() {
+					setDisplayArea(0, 0, -6, 90, 180, 0, 1, 1, 1);
+				}
+				break;
 			case 'zombie':
 				this.updateBasePosition = function() {
 					if (display_slot === 'thirdperson_righthand') {
@@ -317,7 +323,7 @@ class refModel {
 			case 'monitor':
 				this.updateBasePosition = function() {
 					var side = display_slot.includes('left') ? -1 : 1;
-					setDisplayArea(side*9.039, -8.318, 20.8, 0, 0, 0, 1,1,1)
+					setDisplayArea(side*9.039, -8.318+24, 20.8, 0, 0, 0, 1,1,1)
 				}
 				break;
 			case 'frame':
@@ -343,13 +349,23 @@ class refModel {
 			case 'bow':
 				this.updateBasePosition = function() {
 					var side = display_slot.includes('left') ? -1 : 1;
-					setDisplayArea(side*4.2, -4.9, 25, -20, -19, -8, 1,1,1)
+					setDisplayArea(side*4.2, -4.9+24, 25, -20, -19, -8, 1,1,1)
 				}
 				break;
 			case 'crossbow':
 				this.updateBasePosition = function() {
 					var side = display_slot.includes('left') ? -1 : 1;
-					setDisplayArea(side*-1.2, -6.75, 23, 0, side*10, 0, 1, 1, 1)
+					setDisplayArea(side*-1.2, -6.75+24, 23, 0, side*10, 0, 1, 1, 1)
+				}
+				break;
+				
+			case 'eating':
+				this.updateBasePosition = function() {
+					var side = display_slot.includes('left') ? -1 : 1;
+					DisplayMode.setBase(
+						side*-1.7, -6.1+24, 23.4,
+						-92, side*100, side*119,
+						0.8, 0.8, 0.8)
 				}
 				break;
 		}
@@ -463,9 +479,11 @@ class refModel {
 				case 'armor_stand': this.buildArmorStand(); break;
 				case 'baby_zombie': this.buildBabyZombie(); break;
 				case 'armor_stand_small': this.buildArmorStandSmall(); break;
+				case 'fox': this.buildFox(); break;
+				case 'crossbow':
+				case 'bow':
+				case 'eating':
 				case 'monitor': this.buildMonitor(); break;
-				case 'bow': this.buildMonitor(); break;
-				case 'crossbow': this.buildMonitor(); break;
 				case 'block': this.buildBlock(); break;
 				case 'frame': this.buildFrame(); break;
 				case 'frame_invisible': this.buildFrameInvisible(); break;
@@ -479,6 +497,10 @@ class refModel {
 
 		DisplayMode.vue.pose_angle = this.pose_angles[display_slot] || 0;
 		DisplayMode.vue.reference_model = this.id;
+
+		if (display_slot == 'ground') {
+			ground_animation = this.id != 'fox';
+		}
 		
 		ReferenceImage.updateAll()
 	}
@@ -942,6 +964,55 @@ class refModel {
 			}
 		]`), 'assets/armor_stand.png', [64, 64])
 	}
+	buildFox() {
+		this.buildModel(JSON.parse(`[
+			{
+				"size": [8, 6, 6],
+				"pos": [0, 4, 0],
+				"origin": [0, 0, 0],
+				"north": {"uv": [7, 11, 15, 17]},
+				"east": {"uv": [1, 11, 7, 17]},
+				"south": {"uv": [21, 11, 29, 17]},
+				"west": {"uv": [15, 11, 21, 17]},
+				"up": {"uv": [15, 11, 7, 5]},
+				"down": {"uv": [23, 5, 15, 11]}
+			},
+			{
+				"size": [4, 2, 3],
+				"pos": [0, 2, -4.5],
+				"origin": [0, 0, 0],
+				"north": {"uv": [9, 21, 13, 23]},
+				"east": {"uv": [6, 21, 9, 23]},
+				"south": {"uv": [16, 21, 20, 23]},
+				"west": {"uv": [13, 21, 16, 23]},
+				"up": {"uv": [13, 21, 9, 18]},
+				"down": {"uv": [17, 18, 13, 21]}
+			},
+			{
+				"size": [2, 2, 1],
+				"pos": [3, 8, -1.5],
+				"origin": [0, 0, 0],
+				"north": {"uv": [9, 2, 11, 4]},
+				"east": {"uv": [8, 2, 9, 4]},
+				"south": {"uv": [12, 2, 14, 4]},
+				"west": {"uv": [11, 2, 12, 4]},
+				"up": {"uv": [11, 2, 9, 1]},
+				"down": {"uv": [13, 1, 11, 2]}
+			},
+			{
+				"size": [2, 2, 1],
+				"pos": [-3, 8, -1.5],
+				"origin": [0, 0, 0],
+				"north": {"uv": [16, 2, 18, 4]},
+				"east": {"uv": [15, 2, 16, 4]},
+				"south": {"uv": [19, 2, 21, 4]},
+				"west": {"uv": [18, 2, 19, 4]},
+				"up": {"uv": [18, 2, 16, 1]},
+				"down": {"uv": [20, 1, 18, 2]}
+			}
+
+		]`), 'assets/fox.png', [32, 32])
+	}
 	buildZombie() {
 		this.buildModel(JSON.parse(`[
 			{
@@ -1084,10 +1155,10 @@ class refModel {
 	}
 	buildMonitor() {
 		this.buildModel(JSON.parse(`[
-			{"size": [8, 8, 0.1], "pos": [0, 4.93, 31.20], "origin": [0, 0, 0], "north":{"uv":[0,0,0,0]},"east":{"uv":[0,0,0,0]},"south":{"uv":[0,0,0,0]},"west":{"uv":[0,0,16,16]},"up":{"uv":[0,0,0,0]},"down":{"uv":[0,0,0,0]}},
-			{"size": [8, 8, 0.1], "pos": [0, -4.93, 31.20], "origin": [0, 0, 0], "north":{"uv":[0,0,0,0]},"east":{"uv":[0,0,0,0]},"south":{"uv":[0,0,0,0]},"west":{"uv":[0,0,16,16]},"up":{"uv":[0,0,0,0]},"down":{"uv":[0,0,0,0]}},
-			{"size": [8, 8, 0.1], "pos": [5.65, 0, 31.2], "origin": [0, 0, 0], "north":{"uv":[0,0,0,0]},"east":{"uv":[0,0,0,0]},"south":{"uv":[0,0,0,0]},"west":{"uv":[0,0,16,16]},"up":{"uv":[0,0,0,0]},"down":{"uv":[0,0,0,0]}},
-			{"size": [8, 8, 0.1], "pos": [-5.65, 0, 31.2], "origin": [0, 0, 0], "north":{"uv":[0,0,0,0]},"east":{"uv":[0,0,0,0]},"south":{"uv":[0,0,0,0]},"west":{"uv":[0,0,16,16]},"up":{"uv":[0,0,0,0]},"down":{"uv":[0,0,0,0]}}
+			{"size": [8, 8, 0.1], "pos": [0, 28.93, 31.20], "origin": [0, 0, 0], "north":{"uv":[0,0,0,0]},"east":{"uv":[0,0,0,0]},"south":{"uv":[0,0,0,0]},"west":{"uv":[0,0,16,16]},"up":{"uv":[0,0,0,0]},"down":{"uv":[0,0,0,0]}},
+			{"size": [8, 8, 0.1], "pos": [0, 19.07, 31.20], "origin": [0, 0, 0], "north":{"uv":[0,0,0,0]},"east":{"uv":[0,0,0,0]},"south":{"uv":[0,0,0,0]},"west":{"uv":[0,0,16,16]},"up":{"uv":[0,0,0,0]},"down":{"uv":[0,0,0,0]}},
+			{"size": [8, 8, 0.1], "pos": [5.65, 24, 31.2], "origin": [0, 0, 0], "north":{"uv":[0,0,0,0]},"east":{"uv":[0,0,0,0]},"south":{"uv":[0,0,0,0]},"west":{"uv":[0,0,16,16]},"up":{"uv":[0,0,0,0]},"down":{"uv":[0,0,0,0]}},
+			{"size": [8, 8, 0.1], "pos": [-5.65, 24, 31.2], "origin": [0, 0, 0], "north":{"uv":[0,0,0,0]},"east":{"uv":[0,0,0,0]},"south":{"uv":[0,0,0,0]},"west":{"uv":[0,0,16,16]},"up":{"uv":[0,0,0,0]},"down":{"uv":[0,0,0,0]}}
 		]`), 'black')
 	}
 	buildBlock() {
@@ -1141,9 +1212,11 @@ window.displayReferenceObjects = {
 		armor_stand: 		new refModel('armor_stand', {icon: 'icon-armor_stand'}),
 		baby_zombie: 		new refModel('baby_zombie', {icon: 'icon-baby_zombie'}),
 		armor_stand_small:  new refModel('armor_stand_small', {icon: 'icon-armor_stand_small'}),
+		fox: 				new refModel('fox', {icon: 'pets', condition: {formats: ['java_block']}}),
 		monitor: 			new refModel('monitor', {icon: 'fa-asterisk'}),
 		bow: 				new refModel('bow', {icon: 'icon-bow'}),
 		crossbow: 			new refModel('crossbow', {icon: 'icon-crossbow'}),
+		eating: 			new refModel('eating', {icon: 'fa-apple-whole'}),
 		block: 				new refModel('block', {icon: 'fa-cube'}),
 		frame: 				new refModel('frame', {icon: 'filter_frames'}),
 		frame_invisible: 	new refModel('frame_invisible', {icon: 'visibility_off'}),
@@ -1155,11 +1228,8 @@ window.displayReferenceObjects = {
 	},
 	active: '',
 	bar: function(buttons) {
-		$('#display_ref_bar').html('')
-		if (buttons.length === 10000) {
-			this.refmodels[buttons[0]].load()
-			return;
-		}
+		buttons = buttons.filter(id => Condition(this.refmodels[id]));
+		$('#display_ref_bar').html('');
 		if (buttons.length < 2) {
 			$('.reference_model_bar').css('visibility', 'hidden')
 		} else {
@@ -1240,9 +1310,7 @@ enterDisplaySettings = function() {		//Enterung Display Setting Mode, changes th
 	scene.add(display_area);
 	if (Project.model_3d) {
 		Project.model_3d.position.copy(Canvas.scene.position);
-		if (Format.id == 'bedrock_block') {
-			Project.model_3d.position.y = -8;
-		}
+		Project.model_3d.position.y = -8;
 	}
 	scene.position.set(0, 0, 0);
 
@@ -1264,7 +1332,7 @@ exitDisplaySettings = function() {		//Enterung Display Setting Mode, changes the
 	Canvas.global_light_side = 0;
 	Canvas.updateShading();
 	scene.remove(display_area)
-	if (!Format.centered_grid) scene.position.set(-8, -8, -8);
+	if (!Format.centered_grid) scene.position.set(-8, 0, -8);
 	display_base.children.forEachReverse(child => {
 		display_base.remove(child);
 		child.position.set(0, 0, 0);
@@ -1386,7 +1454,10 @@ var setDisplayArea = DisplayMode.setBase = function(x, y, z, rx, ry, rz, sx, sy,
 DisplayMode.groundAnimation = function() {
 	display_area.rotation.y += 0.015
 	ground_timer += 1;
-	let ground_offset = Format.id == 'bedrock_block' ? 3.8 : 5.5;
+	let ground_offset = 3.8;
+	if (Format.id != 'bedrock_block') {
+		ground_offset = 1.9 + display_base.scale.y * 3.6;
+	}
 	display_area.position.y = ground_offset + Math.sin(Math.PI * (ground_timer / 100)) * Math.PI/2
 	Transformer.center()
 	if (ground_timer === 200) ground_timer = 0;
@@ -1459,25 +1530,25 @@ function getOptimalFocalLength() {
 DisplayMode.loadFirstRight = function() {	//Loader
 	loadDisp('firstperson_righthand')
 	display_preview.loadAnglePreset({
-		position: [0, 0, 32.4],
-		target: [0, 0, 0],
+		position: [0, 24, 32.4],
+		target: [0, 24, 0],
 		focal_length: getOptimalFocalLength(),
 	})
 	display_preview.controls.enabled = false
 	if (display_preview.orbit_gizmo) display_preview.orbit_gizmo.hide();
-	displayReferenceObjects.bar(['monitor', 'bow', 'crossbow'])
+	displayReferenceObjects.bar(['monitor', 'bow', 'crossbow', 'eating']);
 	$('.single_canvas_wrapper').append('<div id="display_crosshair"></div>')
 }
 DisplayMode.loadFirstLeft = function() {	//Loader
 	loadDisp('firstperson_lefthand')
 	display_preview.loadAnglePreset({
-		position: [0, 0, 32.4],
-		target: [0, 0, 0],
+		position: [0, 24, 32.4],
+		target: [0, 24, 0],
 		focal_length: getOptimalFocalLength(),
 	})
 	display_preview.controls.enabled = false
 	if (display_preview.orbit_gizmo) display_preview.orbit_gizmo.hide();
-	displayReferenceObjects.bar(['monitor', 'bow', 'crossbow'])
+	displayReferenceObjects.bar(['monitor', 'bow', 'crossbow', 'eating']);
 	$('.single_canvas_wrapper').append('<div id="display_crosshair"></div>')
 }
 DisplayMode.loadHead = function() {		//Loader
@@ -1512,7 +1583,7 @@ DisplayMode.loadGround = function() {		//Loader
 	setDisplayArea(8, 4, 8, 0, 0, 0, 1, 1, 1)
 	ground_animation = true;
 	ground_timer = 0
-	displayReferenceObjects.bar(['block'])
+	displayReferenceObjects.bar(['block', 'fox'])
 }
 DisplayMode.loadFixed = function() {		//Loader
 	loadDisp('fixed')
@@ -1692,6 +1763,21 @@ function updateDisplaySkin(feedback) {
 	}
 }
 DisplayMode.updateDisplaySkin = updateDisplaySkin;
+
+DisplayMode.debugBase = function() {
+	new Dialog('display_base_debug', {
+		title: 'Debug Display Base',
+		darken: false,
+		form: {
+			translation: {type: 'vector', dimensions: 3, step: 0.1, value: [0, 0, 0], label: 'Translation'},
+			rotation: {type: 'vector', dimensions: 3, step: 0.5, value: [0, 0, 0], label: 'Rotation'},
+			scale: {type: 'vector', dimensions: 3, step: 0.05, value: [1, 1, 1], label: 'Scale'},
+		},
+		onFormChange(result) {
+			DisplayMode.setBase(...result.translation, ...result.rotation, ...result.scale)
+		}
+	}).show();
+}
 
 BARS.defineActions(function() {
 	new Action('add_display_preset', {

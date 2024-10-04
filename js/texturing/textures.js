@@ -206,6 +206,7 @@ class Texture {
 				scope.canvas.width = scope.width;
 				scope.canvas.height = scope.height;
 				scope.ctx.drawImage(img, 0, 0);
+				if (UVEditor.vue.texture == this) UVEditor.updateOverlayCanvas();
 			}
 
 			if (this.flags.has('update_uv_size_from_resolution')) {
@@ -306,8 +307,9 @@ class Texture {
 		}
 	}
 	get frameCount() {
-		if (Format.animated_textures && this.ratio !== 1 && this.ratio !== (this.getUVWidth() / this.getUVHeight()) && 1/this.ratio % 1 === 0) {
-			return (this.getUVWidth() / this.getUVHeight()) / this.ratio
+		if (Format.animated_textures && this.ratio !== (this.getUVWidth() / this.getUVHeight())) {
+			let frames = Math.ceil((this.getUVWidth() / this.getUVHeight()) / this.ratio - 0.05);
+			if (frames > 1) return frames;
 		}
 	}
 	get display_height() {
@@ -886,15 +888,17 @@ class Texture {
 		if (event instanceof Event) {
 			Prop.active_panel = 'textures';
 		}
-		if (event && (event.shiftKey || event.ctrlKey)) {
-			this.multi_selected = true;
-			if (event.shiftKey) {
+		if (event && (event.shiftKey || event.ctrlOrCmd || Pressing.overrides.ctrl || Pressing.overrides.shift)) {
+			if (event.shiftKey || Pressing.overrides.shift) {
+				this.multi_selected = true;
 				let start_i = Texture.last_selected;
 				let end_i = Texture.all.indexOf(this);
 				if (start_i > end_i) [start_i, end_i] = [end_i, start_i];
 				for (let i = start_i+1; i < end_i; i++) {
 					Texture.all[i].multi_selected = true;
 				}
+			} else {
+				this.multi_selected = !this.multi_selected;
 			}
 			Texture.last_selected = Texture.all.indexOf(this);
 			return;
@@ -929,7 +933,7 @@ class Texture {
 		Blockbench.dispatchEvent('update_texture_selection');
 		return this;
 	}
-	add(undo) {
+	add(undo, uv_size_from_resolution) {
 		if (isApp && this.path && Project.textures.length) {
 			for (var tex of Project.textures) {
 				if (tex.path === this.path) return tex;
@@ -938,7 +942,7 @@ class Texture {
 		if (Texture.all.find(t => t.render_mode == 'layered')) {
 			this.render_mode = 'layered';
 		}
-		if (Format.per_texture_uv_size && undo) {
+		if (Format.per_texture_uv_size && uv_size_from_resolution) {
 			this.flags.add('update_uv_size_from_resolution');
 		}
 		if (undo) {
@@ -1079,7 +1083,7 @@ class Texture {
 			Blockbench.showQuickMessage('texture.error.file')
 			return this;
 		}
-		shell.showItemInFolder(this.path)
+		showItemInFolder(this.path)
 		return this;
 	}
 	openEditor() {
@@ -1109,10 +1113,9 @@ class Texture {
 		return this;
 	}
 	showContextMenu(event) {
-		var scope = this;
-		scope.select()
+		if (this != Texture.selected) this.select()
 		Prop.active_panel = 'textures'
-		this.menu.open(event, scope)
+		this.menu.open(event, this)
 	}
 	openMenu() {
 		this.select();
@@ -1745,6 +1748,7 @@ class Texture {
 			this.source = this.canvas.toDataURL('image/png', 1);
 			this.updateImageFromCanvas();
 		}
+		if (UVEditor.vue.texture == this) UVEditor.updateOverlayCanvas();
 	}
 	updateChangesAfterEdit() {
 		if (this.layers_enabled) {
@@ -2112,6 +2116,7 @@ function loadTextureDraggable() {
 function unselectTextures() {
 	Texture.all.forEach(function(s) {
 		s.selected = false;
+		s.multi_selected = false;
 	})
 	Texture.selected = undefined;
 	Canvas.updateLayeredTextures();
@@ -2233,7 +2238,7 @@ BARS.defineActions(function() {
 				let texture_group = context instanceof TextureGroup ? context : Texture.selected?.getGroup();
 				Undo.initEdit({textures: new_textures});
 				results.forEach(function(f) {
-					let t = new Texture({name: f.name}).fromFile(f).add(false).fillParticle();
+					let t = new Texture({name: f.name}).fromFile(f).add(false, true).fillParticle();
 					new_textures.push(t);
 					if (texture_group) {
 						t.group = texture_group.uuid;
@@ -2307,6 +2312,9 @@ Interface.definePanels(function() {
 		props: {
 			texture: Texture
 		},
+		data() {return {
+			temp_color: null
+		}},
 		methods: {
 			getDescription(texture) {
 				if (texture.error) {
@@ -2327,6 +2335,25 @@ Interface.definePanels(function() {
 				if (!texture.currentFrame) return;
 				let val = texture.currentFrame * -48 * (texture.display_height / texture.width);
 				return `${val}px`;
+			},
+			highlightTexture(event) {
+				if (!Format.single_texture && this.texture.error) {
+					let material = this.texture.getMaterial();
+					let color = material.uniforms.LIGHTCOLOR.value;
+					this.temp_color = new THREE.Color().copy(color);
+					color.r += 0.3;
+					color.g += 0.3;
+					color.b += 0.3;
+					setTimeout(() => {
+					}, 150);
+				}
+			},
+			unhighlightTexture(event) {
+				if (!Format.single_texture && this.temp_color) {
+					let material = this.texture.getMaterial();
+					let color = material.uniforms.LIGHTCOLOR.value;
+					color.copy(this.temp_color);
+				}
 			},
 			dragTexture(e1) {
 				if (e1.button == 1) return;
@@ -2397,24 +2424,31 @@ Interface.definePanels(function() {
 					$('.drag_hover').removeClass('drag_hover');
 					$('.texture[order]').attr('order', null)
 
-					let target = $('#cubes_list li.outliner_node:hover').last();
-					if (target.length) {
-						target.addClass('drag_hover').attr('order', '0');
-						return;
+					if (isNodeUnderCursor(document.getElementById('cubes_list'), e2)) {
+						for (let node of document.querySelectorAll('.outliner_object')) {
+							if (isNodeUnderCursor(node, e2)) {
+								let parent = node.parentNode;
+								parent.classList.add('drag_hover');
+								parent.setAttribute('order', '0');
+								return;
+							}
+						}
 					}
-					target = document.querySelector('#texture_list li.texture:hover');
-					if (target) {
-						let offset = e2.clientY - $(target).offset().top;
-						target.setAttribute('order', offset > 24 ? '1' : '-1');
-						return;
-					}
-					target = document.querySelector('#texture_list .texture_group_head:hover');
-					if (target) {
-						target.classList.add('drag_hover');
-						target.setAttribute('order', '0');
-						return;
-					}
-					if (document.querySelector('#texture_list:hover')) {
+					if (isNodeUnderCursor(document.querySelector('#texture_list'), e2)) {
+
+						let texture_target = findNodeUnderCursor('#texture_list li.texture', e2);
+						if (texture_target) {
+							let offset = e2.clientY - $(texture_target).offset().top;
+							texture_target.setAttribute('order', offset > 24 ? '1' : '-1');
+							return;
+						}
+						let group_target = findNodeUnderCursor('#texture_list .texture_group_head', e2);
+						if (group_target) {
+							group_target.classList.add('drag_hover');
+							group_target.setAttribute('order', '0');
+							return;
+						}
+
 						let nodes = document.querySelectorAll('#texture_list > li');
 						if (nodes.length) {
 							let target = nodes[nodes.length-1];
@@ -2425,6 +2459,7 @@ Interface.definePanels(function() {
 					last_event = e2;
 				}
 				async function off(e2) {
+					convertTouchEvent(e2);
 					if (helper) helper.remove();
 					clearInterval(scrollIntervalID);
 					removeEventListeners(document, 'mousemove touchmove', move);
@@ -2444,7 +2479,8 @@ Interface.definePanels(function() {
 
 					Blockbench.removeFlag('dragging_textures');
 
-					if ($('.preview:hover').length > 0) {
+
+					if (isNodeUnderCursor(Interface.preview, e2)) {
 						var data = Canvas.raycast(e2)
 						if (data.element && data.face) {
 							var elements = data.element.selected ? UVEditor.getMappableElements() : [data.element];
@@ -2470,10 +2506,11 @@ Interface.definePanels(function() {
 							}
 							Undo.finishEdit('Apply texture')
 						}
-					} else if ($('#texture_list:hover').length > 0) {
+					} else if (isNodeUnderCursor(document.getElementById('texture_list'), e2)) {
+
 						let index = Texture.all.length-1;
-						let texture_node = document.querySelector('#texture_list li.texture:hover');
-						let target_group_head = document.querySelector('#texture_list .texture_group_head:hover');
+						let texture_node = findNodeUnderCursor('#texture_list li.texture', e2);
+						let target_group_head = findNodeUnderCursor('#texture_list .texture_group_head', e2);
 						let new_group = '';
 						if (target_group_head) {
 							new_group = target_group_head.parentNode.id;
@@ -2528,18 +2565,9 @@ Interface.definePanels(function() {
 						Undo.finishEdit('Apply texture');
 						UVEditor.loadData();
 
-					} else if ($('#uv_viewport:hover').length) {
+					} else if (isNodeUnderCursor(document.getElementById('uv_viewport'), e2)) {
 						UVEditor.applyTexture(texture);
 					}
-
-
-					/*convertTouchEvent(e2);
-					let target = document.elementFromPoint(e2.clientX, e2.clientY);
-					[drop_target] = eventTargetToNode(target);
-					if (drop_target) {
-						moveOutlinerSelectionTo(item, drop_target, e2, order);
-					} else if ($('#texture_list').is(':hover')) {
-						moveOutlinerSelectionTo(item, undefined, e2);*/
 				}
 
 				if (Blockbench.isTouch) {
@@ -2559,13 +2587,15 @@ Interface.definePanels(function() {
 				v-bind:texid="texture.uuid"
 				class="texture"
 				@click.stop="texture.select($event)"
+				@mousedown="highlightTexture($event)"
+				@mouseup="unhighlightTexture($event)"
 				@dblclick="texture.openMenu($event)"
 				@mousedown.stop="dragTexture($event)" @touchstart.stop="dragTexture($event)"
 				@contextmenu.prevent.stop="texture.showContextMenu($event)"
 			>
 				<div class="texture_icon_wrapper">
 					<img v-bind:texid="texture.id" v-bind:src="texture.source" class="texture_icon" width="48px" alt="" v-if="texture.show_icon" :style="{marginTop: getTextureIconOffset(texture)}" />
-					<i class="material-icons texture_error" v-bind:title="texture.getErrorMessage()" v-if="texture.error">error_outline</i>
+					<i class="material-icons texture_error" v-bind:title="texture.getErrorMessage()" v-if="texture.error">priority_high</i>
 					<i class="texture_movie fa fa_big fa-film" title="Animated Texture" v-if="texture.frameCount > 1"></i>
 				</div>
 				<div class="texture_description_wrapper">
@@ -2645,12 +2675,15 @@ Interface.definePanels(function() {
 						convertTouchEvent(e2);
 						let pos = e2.clientX - timeline_offset;
 
+						let previous_frame = scope.currentFrame;
 						scope.currentFrame = Math.clamp(Math.round((pos / timeline_width) * maxFrameCount), 0, maxFrameCount-1);
+						if (previous_frame == scope.currentFrame) return;
 
 						let textures = Texture.all.filter(tex => tex.frameCount > 1);
 						Texture.all.forEach(tex => {
 							tex.currentFrame = (scope.currentFrame % tex.frameCount) || 0;
 						})
+						UVEditor.previous_animation_frame = previous_frame;
 						TextureAnimator.update(textures);
 					}
 					function off(e3) {
@@ -2660,6 +2693,20 @@ Interface.definePanels(function() {
 					addEventListeners(document, 'mousemove touchmove', slide);
 					addEventListeners(document, 'mouseup touchend', off);
 					slide(e1);
+				},
+				scrollTimeline(event) {
+					
+					let slider_tex = [Texture.getDefault(), ...Texture.all].find(tex => tex && tex.frameCount > 1);
+					if (!slider_tex) return;
+					UVEditor.previous_animation_frame = slider_tex.currentFrame;
+					let offset = Math.sign(event.deltaY);
+					slider_tex.currentFrame = (slider_tex.currentFrame + slider_tex.frameCount + offset) % slider_tex.frameCount;
+
+					let textures = Texture.all.filter(tex => tex.frameCount > 1);
+					textures.forEach(tex => {
+						tex.currentFrame = (slider_tex.currentFrame % tex.frameCount) || 0;
+					})
+					TextureAnimator.update(textures);
 				},
 				getPlayheadPos() {
 					if (!this.$refs.timeline) return 0;
@@ -2671,6 +2718,7 @@ Interface.definePanels(function() {
 					this.textures.forEach(tex => {
 						if (tex.frameCount > count) count = tex.frameCount;
 					});
+					if (count == 1) return 0;
 					return count;
 				},
 				unselect(event) {
@@ -2741,7 +2789,7 @@ Interface.definePanels(function() {
 						$('.drag_hover').removeClass('drag_hover');
 						$('.texture_group[order]').attr('order', null);
 	
-						let target = document.querySelector('#texture_list .texture_group:hover');
+						let target = findNodeUnderCursor('#texture_list .texture_group', e2);
 						if (target) {
 							target.classList.add('drag_hover');
 							let offset = e2.clientY - $(target).offset().top;
@@ -2749,7 +2797,7 @@ Interface.definePanels(function() {
 							target.setAttribute('order', order.toString());
 							texture_group_target_node = target;
 
-						} else if (document.querySelector('#texture_list:hover')) {
+						} else if (isNodeUnderCursor(document.querySelector('#texture_list'), e2)) {
 							let nodes = document.querySelectorAll('#texture_list > li.texture_group');
 							if (nodes.length) {
 								let target = nodes[nodes.length-1];
@@ -2852,7 +2900,7 @@ Interface.definePanels(function() {
 					</ul>
 					<div id="texture_animation_playback" class="bar" v-show="maxFrameCount()">
 						<div class="tool_wrapper"></div>
-						<div id="texture_animation_timeline" ref="timeline" @mousedown="slideTimelinePointer">
+						<div id="texture_animation_timeline" ref="timeline" @mousedown="slideTimelinePointer" @wheel="scrollTimeline($event)">
 							<div class="texture_animation_frame" v-for="i in maxFrameCount()"></div>
 							<div id="animated_texture_playhead" :style="{left: getPlayheadPos() + 'px'}"></div>
 						</div>

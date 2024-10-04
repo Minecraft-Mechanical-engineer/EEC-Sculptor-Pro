@@ -536,7 +536,7 @@ const Timeline = {
 		}
 		Timeline.playing = true
 		BarItems.play_animation.setIcon('pause')
-		Timeline.last_frame_timecode = Date.now();
+		Timeline.last_frame_timecode = performance.now();
 		if (Animation.selected.loop == 'hold' && Timeline.time >= (Animation.selected.length||1e3)) {
 			Timeline.setTime(Timeline.custom_range[0])
 		}
@@ -566,7 +566,7 @@ const Timeline = {
 		if (Animation.selected.loop == 'hold') {
 			time = Math.clamp(time, Timeline.custom_range[0], max_time);
 		}
-		Timeline.last_frame_timecode = Date.now();
+		Timeline.last_frame_timecode = performance.now();
 
 		if (time < max_time) {
 			Timeline.setTime(time);
@@ -731,7 +731,7 @@ Interface.definePanels(() => {
 				animation_length: 0,
 				scroll_left: 0,
 				scroll_top: 0,
-				head_width: Interface.data.timeline_head,
+				head_width: Blockbench.isMobile ? 108 : Interface.data.timeline_head,
 				timecodes: [],
 				animators: Timeline.animators,
 				markers: [],
@@ -1806,7 +1806,8 @@ BARS.defineActions(function() {
 		click: function () {
 			let was_playing = Timeline.playing;
 			if (Timeline.playing) Timeline.pause();
-			Timeline.setTime(0);
+			let time = Timeline.custom_range[0] || 0;
+			Timeline.setTime(time);
 			if (was_playing) {
 				Timeline.start();
 			} else {
@@ -1823,7 +1824,8 @@ BARS.defineActions(function() {
 		click: function () {
 			let was_playing = Timeline.playing;
 			if (Timeline.playing) Timeline.pause();
-			Timeline.setTime(Animation.selected ? Animation.selected.length : 0)
+			let time = Timeline.custom_range[1] || (Animation.selected ? Animation.selected.length : 0);
+			Timeline.setTime(time);
 			if (was_playing) {
 				Timeline.start();
 			} else {
@@ -1867,6 +1869,7 @@ BARS.defineActions(function() {
 		condition: {modes: ['animate']},
 		click() {
 			Timeline.custom_range.set(0, Timeline.time);
+			BARS.updateConditions();
 		}
 	})
 	new Action('set_timeline_range_end', {
@@ -1875,15 +1878,17 @@ BARS.defineActions(function() {
 		condition: {modes: ['animate']},
 		click() {
 			Timeline.custom_range.set(1, Timeline.time);
+			BARS.updateConditions();
 		}
 	})
 	new Action('disable_timeline_range', {
 		icon: 'code_off',
 		category: 'animation',
 		condition: {modes: ['animate']},
-		condition: () => Timeline.custom_range[1],
+		condition: () => Timeline.custom_range[0] || Timeline.custom_range[1],
 		click() {
 			Timeline.custom_range.replace([0, 0]);
+			BARS.updateConditions();
 		}
 	})
 
