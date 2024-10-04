@@ -3854,6 +3854,10 @@ Interface.definePanels(function() {
 							</svg>
 						</div>
 
+						<div class="uv_navigator" :style="getUVNavigatorPosition()" @click="focusOnSelection()">
+							<i class="material-icons icon">line_start_arrow</i>
+						</div>
+
 						<div class="uv_transparent_face" v-else-if="showTransparentFaceText()">${tl('uv_editor.transparent_face')}</div>
 					</div>
 
