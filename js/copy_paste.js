@@ -331,7 +331,7 @@ const Clipbench = {
 		if (Clipbench.group) {
 			function iterate(obj, parent) {
 				if (obj.children) {
-					var copy = new Group(obj).addTo(parent).init();
+					let copy = new Group(obj).addTo(parent).init();
 					copy._original_name = copy.name;
 					copy.createUniqueName();
 					Property.resetUniqueValues(Group, copy);
@@ -341,15 +341,17 @@ const Clipbench = {
 							iterate(child, copy)
 						})
 					}
+					return copy;
 				} else if (OutlinerElement.isTypePermitted(obj.type)) {
 					var copy = OutlinerElement.fromSave(obj).addTo(parent).selectLow();
 					copy.createUniqueName();
 					Property.resetUniqueValues(copy.constructor, copy);
 					copy.preview_controller.updateTransform(copy);
+					return copy;
 				}
 			}
-			iterate(Clipbench.group, target)
-			updateSelection()
+			let copy = iterate(Clipbench.group, target);
+			copy.select();
 
 		} else if (Clipbench.elements && Clipbench.elements.length) {
 			let elements = [];
@@ -431,7 +433,15 @@ BARS.defineActions(function() {
 		category: 'edit',
 		work_in_dialog: true,
 		condition: () => Clipbench.getCopyType(1, true) || SharedActions.condition('copy'),
-		keybind: new Keybind({key: 'c', ctrl: true, shift: null}),
+		keybind: new Keybind({key: 'c', ctrl: true}, {
+			multiple: 'shift'
+		}),
+		variations: {
+			multiple: {
+				name: 'action.copy.multiple',
+				description: 'action.copy.multiple.desc',
+			}
+		},
 		click(event) {
 			Clipbench.copy(event)
 		}
@@ -441,7 +451,15 @@ BARS.defineActions(function() {
 		category: 'edit',
 		work_in_dialog: true,
 		condition: () => Clipbench.getCopyType(1, true) || SharedActions.condition('copy'),
-		keybind: new Keybind({key: 'x', ctrl: true, shift: null}),
+		keybind: new Keybind({key: 'x', ctrl: true}, {
+			multiple: 'shift'
+		}),
+		variations: {
+			multiple: {
+				name: 'action.copy.multiple',
+				description: 'action.copy.multiple.desc',
+			}
+		},
 		click(event) {
 			Clipbench.copy(event, true)
 		}
@@ -451,7 +469,14 @@ BARS.defineActions(function() {
 		category: 'edit',
 		work_in_dialog: true,
 		condition: () => Clipbench.getCopyType(2, true) || SharedActions.condition('paste'),
-		keybind: new Keybind({key: 'v', ctrl: true, shift: null}),
+		keybind: new Keybind({key: 'v', ctrl: true}, {
+			multiple: 'shift'
+		}),
+		variations: {
+			multiple: {
+				name: 'action.paste.multiple',
+			}
+		},
 		click(event) {
 			Clipbench.paste(event)
 		}

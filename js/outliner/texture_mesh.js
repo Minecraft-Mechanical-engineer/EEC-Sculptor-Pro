@@ -14,7 +14,7 @@ class TextureMesh extends OutlinerElement {
 	}
 	getWorldCenter() {
 		let m = this.mesh;
-		let pos = Reusable.vec1.fromArray(this.local_pivot);
+		let pos = new THREE.Vector3().fromArray(this.local_pivot);
 
 		if (m) {
 			let r = m.getWorldQuaternion(Reusable.quat1);
@@ -294,8 +294,11 @@ new NodePreviewController(TextureMesh, {
 		let {mesh} = element;
 
 		if (Project.view_mode === 'solid') {
-			mesh.material = Canvas.solidMaterial
+			mesh.material = Canvas.monochromaticSolidMaterial
 		
+		} else if (Project.view_mode === 'colored_solid') {
+			mesh.material = Canvas.coloredSolidMaterials[0]
+
 		} else if (Project.view_mode === 'wireframe') {
 			mesh.material = Canvas.wireframeMaterial
 

@@ -9,9 +9,10 @@ const Plugins = {
 	currently_loading: '',
 	api_path: settings.cdn_mirror.value ? 'https://blckbn.ch/cdn/plugins' : 'https://cdn.jsdelivr.net/gh/JannisX11/blockbench-plugins/plugins',
 	devReload() {
-		var reloads = 0;
-		for (var i = Plugins.all.length-1; i >= 0; i--) {
-			if (Plugins.all[i].source == 'file') {
+		let reloads = 0;
+		for (let i = Plugins.all.length-1; i >= 0; i--) {
+			let plugin = Plugins.all[i];
+			if (plugin.source == 'file' && plugin.isReloadable()) {
 				Plugins.all[i].reload()
 				reloads++;
 			}
@@ -34,6 +35,40 @@ const Plugins = {
 }
 StateMemory.init('installed_plugins', 'array')
 Plugins.installed = StateMemory.installed_plugins = StateMemory.installed_plugins.filter(p => p && typeof p == 'object');
+
+async function runPluginFile(path, plugin_id) {
+	let file_content;
+	if (path.startsWith('http')) {
+		if (!path.startsWith('https')) {
+			throw 'Cannot load plugins over http: ' + path;
+		}
+		await new Promise((resolve, reject) => {
+			$.ajax({
+				cache: false,
+				url: path,
+				success(data) {
+					file_content = data;
+					resolve();
+				},
+				error() {
+					reject('Failed to load plugin ' + plugin_id);
+				}
+			});
+		})
+
+	} else if (isApp) {
+		file_content = fs.readFileSync(path, {encoding: 'utf-8'});
+
+	} else {
+		throw 'Failed to load plugin: Unknown URL format'
+	}
+	if (typeof file_content != 'string' || file_content.length < 20) {
+		throw `Issue loading plugin "${plugin_id}": Plugin file empty`;
+	}
+	let func = new Function(file_content + `\n//# sourceURL=PLUGINS/(Plugin):${plugin_id}.js`);
+	func();
+	return file_content;
+}
 
 class Plugin {
 	constructor(id, data) {
@@ -120,6 +155,7 @@ class Plugin {
 					icon: 'warning',
 					title: this.title,
 					message,
+					cancelIndex: 0,
 					buttons: ['dialog.cancel', 'message.plugin_deprecated.install_anyway']
 				}, resolve)
 			})
@@ -135,10 +171,7 @@ class Plugin {
 			if (!isApp && this.new_repository_format)  {
 				path = `${Plugins.path}${scope.id}/${scope.id}.js`;
 			}
-			$.getScript(path, (content, status, context) => {
-				if (content.length <= 20) {
-					console.warn(`Issue loading plugin "${this.id}": Plugin file empty`);
-				}
+			runPluginFile(path, this.id).then((content) => {
 				if (cb) cb.bind(scope)()
 				scope.bindGlobalData(first)
 				if (first && scope.oninstall) {
@@ -146,13 +179,14 @@ class Plugin {
 				}
 				if (first) Blockbench.showQuickMessage(tl('message.installed_plugin', [this.title]));
 				resolve()
-			}).fail(() => {
+			}).catch((error) => {
 				if (isApp) {
 					console.log('Could not find file of plugin "'+scope.id+'". Uninstalling it instead.')
 					scope.uninstall()
 				}
 				if (first) Blockbench.showQuickMessage(tl('message.installed_plugin_fail', [this.title]));
 				reject()
+				console.error(error)
 			})
 			this.remember()
 			scope.installed = true;
@@ -298,44 +332,39 @@ class Plugin {
 		this.source = 'file';
 		this.tags.safePush('Local');
 
-		return await new Promise((resolve, reject) => {
-
-			if (isApp) {
-				$.getScript(file.path, () => {
-					if (window.plugin_data) {
-						scope.id = (plugin_data && plugin_data.id)||pathToName(file.path)
-						scope.extend(plugin_data)
-						scope.bindGlobalData()
-					}
-					if (first && scope.oninstall) {
-						scope.oninstall()
-					}
-					scope.installed = true;
-					scope.path = file.path;
-					this.remember();
-					Plugins.sort();
-					resolve()
-				}).fail(reject)
-			} else {
-				try {
-					new Function(file.content)();
-				} catch (err) {
-					reject(err)
-				}
-				if (!Plugins.registered && window.plugin_data) {
-					scope.id = (plugin_data && plugin_data.id)||scope.id
+		if (isApp) {
+			let content = await runPluginFile(file.path, this.id).catch((error) => {
+				console.error(error);
+			});
+			if (content) {
+				if (window.plugin_data) {
+					scope.id = (plugin_data && plugin_data.id)||pathToName(file.path)
 					scope.extend(plugin_data)
 					scope.bindGlobalData()
 				}
 				if (first && scope.oninstall) {
 					scope.oninstall()
 				}
-				scope.installed = true
-				this.remember()
-				Plugins.sort()
-				resolve()
+				scope.path = file.path;
 			}
-		})
+		} else {
+			try {
+				new Function(file.content + `\n//# sourceURL=PLUGINS/(Plugin):${this.id}.js`)();
+			} catch (err) {
+				reject(err)
+			}
+			if (!Plugins.registered && window.plugin_data) {
+				scope.id = (plugin_data && plugin_data.id)||scope.id
+				scope.extend(plugin_data)
+				scope.bindGlobalData()
+			}
+			if (first && scope.oninstall) {
+				scope.oninstall()
+			}
+		}
+		this.installed = true;
+		this.remember();
+		Plugins.sort();
 	}
 	async loadFromURL(url, first) {
 		if (first) {
@@ -352,36 +381,36 @@ class Plugin {
 		this.tags.safePush('Remote');
 
 		this.source = 'url';
-		await new Promise((resolve, reject) => {
-			$.getScript(url, () => {
-				if (window.plugin_data) {
-					this.id = (plugin_data && plugin_data.id)||pathToName(url)
-					this.extend(plugin_data)
-					this.bindGlobalData()
-				}
-				if (first && this.oninstall) {
-					this.oninstall()
-				}
-				this.installed = true
-				this.path = url
-				this.remember()
-				Plugins.sort()
-				// Save
-				if (isApp) {
-					var file = originalFs.createWriteStream(Plugins.path+this.id+'.js')
+		let content = await runPluginFile(url, this.id).catch((error) => {
+			if (isApp) {
+				this.load().then(resolve).catch(resolve)
+			}
+			console.error(error);
+		})
+		if (content) {
+			if (window.plugin_data) {
+				this.id = (plugin_data && plugin_data.id)||pathToName(url)
+				this.extend(plugin_data)
+				this.bindGlobalData()
+			}
+			if (first && this.oninstall) {
+				this.oninstall()
+			}
+			this.installed = true
+			this.path = url
+			this.remember()
+			Plugins.sort()
+			// Save
+			if (isApp) {
+				await new Promise((resolve) => {
+					let file = originalFs.createWriteStream(Plugins.path+this.id+'.js')
 					https.get(url, (response) => {
 						response.pipe(file);
 						response.on('end', resolve)
 					}).on('error', reject);
-				} else {
-					resolve()
-				}
-			}).fail(() => {
-				if (isApp) {
-					this.load().then(resolve).catch(resolve)
-				}
-			})
-		})
+				})
+			}
+		}
 		return this;
 	}
 	remember(id = this.id, path = this.path) {
@@ -449,6 +478,8 @@ class Plugin {
 		this.dependencies.empty();
 		Plugins.all.remove(this);
 		this.details = null;
+		let had_changelog = this.changelog_fetched;
+		this.changelog_fetched = false;
 
 		if (this.source == 'file') {
 			this.loadFromFile({path: this.path}, false)
@@ -458,6 +489,9 @@ class Plugin {
 		}
 
 		this.fetchAbout(true);
+		if (had_changelog && this.has_changelog) {
+			this.fetchChangelog(true);
+		}
 
 		return this;
 	}
@@ -597,8 +631,12 @@ class Plugin {
 			this.details[key + '_full'] = date.full;
 		}
 		if (this.source == 'store') {
-			if (!this.details.bug_tracker) this.details.bug_tracker = `https://github.com/JannisX11/blockbench-plugins/issues/new?title=[${this.title}]`;
-			if (!this.details.repository) this.details.repository = `https://github.com/JannisX11/blockbench-plugins/tree/master/plugins/${this.id + (this.new_repository_format ? '' : '.js')}`;
+			if (!this.details.bug_tracker) {
+				this.details.bug_tracker = `https://github.com/JannisX11/blockbench-plugins/issues/new?title=[${this.title}]`;
+			}
+			if (!this.details.repository) {
+				this.details.repository = `https://github.com/JannisX11/blockbench-plugins/tree/master/plugins/${this.id + (this.new_repository_format ? '' : '.js')}`;
+			}
 
 			let github_path = (this.new_repository_format ? (this.id+'/'+this.id) : this.id) + '.js';
 			let commit_url = `https://api.github.com/repos/JannisX11/blockbench-plugins/commits?path=plugins/${github_path}`;
@@ -685,7 +723,7 @@ Plugin.prototype.menu = new Menu([
 		icon: 'folder',
 		condition: plugin => (isApp && plugin.source == 'file'),
 		click(plugin) {
-			shell.showItemInFolder(plugin.path);
+			showItemInFolder(plugin.path);
 		}
 	},
 ]);
@@ -873,6 +911,7 @@ BARS.defineActions(function() {
 		title: 'dialog.plugins.title',
 		buttons: [],
 		width: 1200,
+		resizable: 'xy',
 		component: {
 			data: {
 				tab: 'installed',
@@ -886,24 +925,7 @@ BARS.defineActions(function() {
 				isMobile: Blockbench.isMobile,
 			},
 			computed: {
-				plugin_search() {
-					var name = this.search_term.toUpperCase()
-					return this.items.filter(item => {
-						if ((this.tab == 'installed') == item.installed) {
-							if (name.length > 0) {
-								return (
-									item.id.toUpperCase().includes(name) ||
-									item.title.toUpperCase().includes(name) ||
-									item.description.toUpperCase().includes(name) ||
-									item.author.toUpperCase().includes(name) ||
-									item.tags.find(tag => tag.toUpperCase().includes(name))
-								)
-							}
-							return true;
-						}
-						return false;
-					})
-				},
+				plugin_search()
 				suggested_rows() {
 					let tags = ["Animation"];
 					this.items.forEach(plugin => {
@@ -1015,7 +1037,12 @@ BARS.defineActions(function() {
 					return pureMarked(about);
 				},
 				reduceLink(url) {
-					return url.replace('https://', '').substring(0, 50)+'...';
+					url = url.replace('https://', '').replace(/\/$/, '');
+					if (url.length > 50) {
+						return url.substring(0, 50)+'...';
+					} else {
+						return url;
+					}
 				},
 				printDate(input_date) {
 					return getDateDisplay(input_date).short;
@@ -1041,8 +1068,13 @@ BARS.defineActions(function() {
 				},
 
 				// Settings
-				saveSettings() {
-					Settings.saveLocalStorages();
+				changePluginSetting(setting) {
+					setTimeout(() => {
+						if (typeof setting.onChange == 'function') {
+							setting.onChange(setting.value);
+						}
+						Settings.saveLocalStorages();
+					}, 20);
 				},
 				settingContextMenu(setting, event) {
 					new Menu([
@@ -1051,7 +1083,7 @@ BARS.defineActions(function() {
 							icon: 'replay',
 							click: () => {
 								setting.ui_value = setting.default_value;
-								this.saveSettings();
+								Settings.saveLocalStorages();
 							}
 						}
 					]).open(event);
@@ -1245,12 +1277,12 @@ BARS.defineActions(function() {
 							<div class="tool" v-if="!isMobile" @click="selectPlugin(null);"><i class="material-icons icon">home</i></div>
 							<search-bar id="plugin_search_bar" v-model="search_term" @input="setPage(0)"></search-bar>
 						</div>
-						<div class="tab_bar">
+						<div class="tab_bar" v-if="!search_term">
 							<div :class="{open: tab == 'installed'}" @click="setTab('installed')">${tl('dialog.plugins.installed')}</div>
 							<div :class="{open: tab == 'available'}" @click="setTab('available')">${tl('dialog.plugins.available')}</div>
 						</div>
-						<ul class="list" id="plugin_list" ref="plugin_list">
-							<li v-for="plugin in viewed_plugins" :plugin="plugin.id" :class="{plugin: true, testing: plugin.fromFile, selected: plugin == selected_plugin, disabled_plugin: plugin.disabled, incompatible: plugin.isInstallable() !== true}" @click="selectPlugin(plugin)" @contextmenu="selectPlugin(plugin); plugin.showContextMenu($event)">
+						<ul class="list" :class="{paginated_list: pages.length > 1}" id="plugin_list" ref="plugin_list">
+							<li v-for="plugin in viewed_plugins" :plugin="plugin.id" :class="{plugin: true, testing: plugin.fromFile, selected: plugin == selected_plugin, disabled_plugin: plugin.disabled, installed_plugin: plugin.installed, disabled_plugin: plugin.disabled, incompatible: plugin.isInstallable() !== true}" @click="selectPlugin(plugin)" @contextmenu="selectPlugin(plugin); plugin.showContextMenu($event)">
 								<div>
 									<div class="plugin_icon_area">
 										<img v-if="plugin.hasImageIcon()" :src="plugin.getIcon()" width="48" height="48px" />
@@ -1260,6 +1292,7 @@ BARS.defineActions(function() {
 										<div class="title">{{ plugin.title || plugin.id }}</div>
 										<div class="author">{{ tl('dialog.plugins.author', [plugin.author]) }}</div>
 									</div>
+									<div v-if="plugin.installed && search_term" class="plugin_installed_tag">✓ ${tl('dialog.plugins.is_installed')}</div>
 								</div>
 								<div class="description">{{ plugin.description }}</div>
 								<ul class="plugin_tag_list">
@@ -1274,7 +1307,7 @@ BARS.defineActions(function() {
 						</ol>
 					</div>
 					
-					<div id="plugin_browser_page" v-if="selected_plugin">
+					<div id="plugin_browser_page" v-if="selected_plugin" :class="{plugin_disabled: selected_plugin.disabled, plugin_installed: selected_plugin.installed}">
 						<div v-if="isMobile" @click="selectPlugin(null);" class="plugin_browser_back_button">
 							<i class="material-icons icon">arrow_back_ios</i>
 							${tl('generic.navigate_back')}</div>
@@ -1425,13 +1458,13 @@ BARS.defineActions(function() {
 									@contextmenu="settingContextMenu(setting, $event)"
 								>
 									<template v-if="setting.type === 'number'">
-										<div class="setting_element"><numeric-input v-model.number="setting.ui_value" :min="setting.min" :max="setting.max" :step="setting.step" v-on:input="saveSettings()" /></div>
+										<div class="setting_element"><numeric-input v-model.number="setting.ui_value" :min="setting.min" :max="setting.max" :step="setting.step" @input="changePluginSetting(setting)" /></div>
 									</template>
 									<template v-else-if="setting.type === 'click'">
 										<div class="setting_element setting_icon" v-html="getIconNode(setting.icon).outerHTML"></div>
 									</template>
 									<template v-else-if="setting.type == 'toggle'"><!--TOGGLE-->
-										<div class="setting_element"><input type="checkbox" v-model="setting.ui_value" v-bind:id="'setting_'+key" v-on:click="saveSettings()"></div>
+										<div class="setting_element"><input type="checkbox" v-model="setting.ui_value" v-bind:id="'setting_'+key" @click="changePluginSetting(setting)"></div>
 									</template>
 
 									<div class="setting_label">
@@ -1447,11 +1480,11 @@ BARS.defineActions(function() {
 									</div>
 
 									<template v-if="setting.type === 'text'">
-										<input type="text" class="dark_bordered" style="width: 96%" v-model="setting.ui_value" v-on:input="saveSettings()">
+										<input type="text" class="dark_bordered" style="width: 96%" v-model="setting.ui_value" @input="changePluginSetting(setting)">
 									</template>
 
 									<template v-if="setting.type === 'password'">
-										<input :type="setting.hidden ? 'password' : 'text'" class="dark_bordered" style="width: calc(96% - 28px);" v-model="setting.ui_value" v-on:input="saveSettings()">
+										<input :type="setting.hidden ? 'password' : 'text'" class="dark_bordered" style="width: calc(96% - 28px);" v-model="setting.ui_value" @input="changePluginSetting(setting)">
 										<div class="password_toggle" @click="setting.hidden = !setting.hidden;">
 											<i class="fas fa-eye-slash" v-if="setting.hidden"></i>
 											<i class="fas fa-eye" v-else></i>
@@ -1460,7 +1493,7 @@ BARS.defineActions(function() {
 
 									<template v-else-if="setting.type === 'select'">
 										<div class="bar_select">
-											<select-input v-model="setting.ui_value" :options="setting.options" />
+											<select-input v-model="setting.ui_value" :options="setting.options" @change="changePluginSetting"setting />
 										</div>
 									</template>
 								</li>

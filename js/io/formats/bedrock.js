@@ -346,14 +346,23 @@ window.BedrockBlockManager = class BedrockBlockManager {
 			if (typeof c === 'string') {
 				c = autoParseJSON(c, false);
 				let main = c && c['minecraft:block'];
-				if (main && main.components && typeof main.components['minecraft:geometry'] == 'string') {
-					var geoname = main.components['minecraft:geometry'];
-					geoname = geoname.replace(/^geometry\./, '');
-					if (geoname == this.project.geometry_name) {
-						main.type = 'block';
-						return main;
+				if (!main || !main.components) return;
+
+				let isThisGeo = id => {
+					return typeof id == 'string' && id.replace(/^geometry\./, '') == this.project.geometry_name;
+				}
+				if (isThisGeo(main.components['minecraft:geometry'])) {
+					main.type = 'block';
+					return main;
+				}
+				if (main.permutations instanceof Array) {
+					for (let permutation of main.permutations) {
+						if (permutation.components && isThisGeo(permutation.components['minecraft:geometry'])) {
+							main.type = 'block';
+							return main;
+						}
 					}
-				} 
+				}
 			}
 		} catch (err) {
 			console.log(err);
@@ -379,9 +388,12 @@ window.BedrockBlockManager = class BedrockBlockManager {
 				try {
 					let bp_manifest_path = [...path, dirent.name, 'manifest.json'].join(osfs);
 					let bp_manifest_content = autoParseJSON(fs.readFileSync(bp_manifest_path, 'utf-8'), false);
-					if (bp_manifest_content && bp_manifest_content.dependencies && bp_manifest_content.dependencies[0] && bp_manifest_content.dependencies[0].uuid == rp_uuid) {
-						bp_name = dirent.name;
-						break;
+					if (bp_manifest_content && bp_manifest_content.dependencies instanceof Array) {
+						let matching_dependency = bp_manifest_content.dependencies.find(dep => dep.uuid == rp_uuid);
+						if (matching_dependency) {
+							bp_name = dirent.name;
+							break;
+						}
 					}
 				} catch (err) {}
 			}
@@ -429,7 +441,9 @@ window.BedrockBlockManager = class BedrockBlockManager {
 				let texture_path = `textures/blocks/${material.texture || this.project.geometry_name}`;
 				if (terrain_texture) {
 					let texture_data = terrain_texture[material.texture];
-					texture_path = texture_data.textures
+					if (typeof texture_data?.textures == 'string') {
+						texture_path = texture_data.textures;
+					}
 				}
 				let full_texture_path = PathModule.join(this.rp_root_path + osfs + texture_path.replace(/\.png$/i, ''));
 				full_texture_path = findExistingFile([
@@ -438,20 +452,22 @@ window.BedrockBlockManager = class BedrockBlockManager {
 				])
 				if (full_texture_path) {
 					let texture = new Texture({keep_size: true}).fromPath(full_texture_path).add();
-					let target_regex = new RegExp('^' + target.replace(/\*/g, '.*') + '$');
+					if (target == '*') {
+						texture.use_as_default = true;
 
-					Cube.all.forEach(cube => {
-						for (let fkey in cube.faces) {
-							let face = cube.faces[fkey];
-							if (face.texture === null) continue;
-							if (
-								(target == '*') ||
-								(face.material_name && face.material_name.match(target_regex))
-							) {
-								face.texture = texture.uuid;
+					} else {
+						let target_regex = new RegExp('^' + target.replace(/\*/g, '.*') + '$');
+						Cube.all.forEach(cube => {
+							for (let fkey in cube.faces) {
+								let face = cube.faces[fkey];
+								if (face.texture === null) continue;
+								if (face.material_name && face.material_name.match(target_regex)) {
+									face.texture = texture.uuid;
+								}
 							}
-						}
-					})
+						})
+					}
+
 				}
 			}
 			Canvas.updateView({elements: Cube.all, element_aspects: {faces: true}})
@@ -541,7 +557,8 @@ function calculateVisibleBox() {
 						uv: [
 							s.uv[key].uv[0],
 							s.uv[key].uv[1]
-						]
+						],
+						rotation: s.uv[key].uv_rotation
 					})
 					if (s.uv[key].uv_size) {
 						face.uv_size = [
@@ -557,7 +574,8 @@ function calculateVisibleBox() {
 					}
 				} else {
 					face.texture = null;
-					face.uv = [0, 0, 0, 0]
+					face.uv = [0, 0, 0, 0],
+					face.rotation = 0;
 				}
 			}
 			
@@ -600,8 +618,8 @@ function calculateVisibleBox() {
 			})
 		}
 		if (b.locators) {
-			for (var key in b.locators) {
-				var coords, rotation, ignore_inherited_scale;
+			for (let key in b.locators) {
+				let coords, rotation, ignore_inherited_scale;
 				if (b.locators[key] instanceof Array) {
 					coords = b.locators[key];
 				} else {
@@ -698,6 +716,10 @@ function calculateVisibleBox() {
 			Project.texture_height = description.texture_height;
 		}
 
+		if (data.object.item_display_transforms !== undefined) {
+			DisplayMode.loadJSON(data.object.item_display_transforms)
+		}
+
 		var bones = {}
 
 		if (data.object.bones) {
@@ -714,7 +736,6 @@ function calculateVisibleBox() {
 
 		codec.dispatchEvent('parsed', {model: data.object});
 
-		loadTextureDraggable()
 		Canvas.updateAllBones()
 		setProjectTitle()
 		if (isApp && Project.geometry_name) {
@@ -768,6 +789,9 @@ function calculateVisibleBox() {
 							face.uv_size[1],
 						]
 					});
+					if (face.rotation) {
+						template.uv[key].uv_rotation = face.rotation;
+					}
 					if (face.material_name) {
 						template.uv[key].material_instance = face.material_name;
 					}
@@ -1006,6 +1030,28 @@ let entity_file_codec = new Codec('bedrock_entity_file', {
 	},
 })
 
+function getFormatVersion() {
+	if (Format.display_mode) {
+		let has_new_displays = false;
+		for (let i in DisplayMode.slots) {
+			let key = DisplayMode.slots[i]
+			if (Project.display_settings[key] && Project.display_settings[key].export) {
+				let data = Project.display_settings[key].export();
+				if (data) {
+					return '1.21.20';
+				}
+			}
+		}
+	}
+	for (let cube of Cube.all) {
+		for (let fkey in cube.faces) {
+			if (cube.faces[fkey].rotation) return '1.21.0';
+		}
+	}
+	if (Group.all.find(group => group.bedrock_binding)) return '1.16.0';
+	return '1.12.0';
+}
+
 var codec = new Codec('bedrock', {
 	name: 'Bedrock Model',
 	extension: 'json',
@@ -1059,7 +1105,7 @@ var codec = new Codec('bedrock', {
 
 		var entitymodel = {}
 		var main_tag = {
-			format_version: Group.all.find(group => group.bedrock_binding) ? '1.16.0' : '1.12.0',
+			format_version: getFormatVersion(),
 			'minecraft:geometry': [entitymodel]
 		}
 		entitymodel.description = {
@@ -1100,6 +1146,20 @@ var codec = new Codec('bedrock', {
 		if (bones.length) {
 			entitymodel.bones = bones
 		}
+
+		let new_display = {};
+		let has_new_displays = false;
+		for (let i in DisplayMode.slots) {
+			let key = DisplayMode.slots[i]
+			if (Project.display_settings[key] && Project.display_settings[key].export) {
+				new_display[key] = Project.display_settings[key].export();
+				if (new_display[key]) has_new_displays = true;
+			}
+		}
+		if (has_new_displays) {
+			entitymodel.item_display_transforms = new_display
+		}
+
 		this.dispatchEvent('compile', {model: main_tag, options});
 
 		if (options.raw) {
@@ -1143,8 +1203,8 @@ var codec = new Codec('bedrock', {
 		}
 		if (data && index !== undefined) {
 
-			if (Group.all.find(group => group.bedrock_binding)) {
-				data.format_version = '1.16.0';
+			if (!data.format_version || compareVersions(getFormatVersion(), data.format_version)) {
+				data.format_version = getFormatVersion();
 			}
 
 			data['minecraft:geometry'].forEach(geo => {
@@ -1283,6 +1343,7 @@ var entity_format = new ModelFormat({
 	rotate_cubes: true,
 	box_uv: true,
 	optional_box_uv: true,
+	uv_rotation: true,
 	single_texture: true,
 	bone_rig: true,
 	centered_grid: true,
@@ -1321,12 +1382,14 @@ var block_format = new ModelFormat({
 	rotate_cubes: true,
 	box_uv: false,
 	optional_box_uv: true,
-	single_texture: false,
+	uv_rotation: true,
+	single_texture_default: true,
 	bone_rig: true,
 	centered_grid: true,
 	animated_textures: true,
 	animation_files: false,
 	animation_mode: false,
+	display_mode: true,
 	texture_meshes: true,
 	cube_size_limiter: {
 		rotation_affected: true,

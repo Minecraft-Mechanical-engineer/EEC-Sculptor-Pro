@@ -242,7 +242,7 @@ const Templates = {
 			// Paste this class into your mod and generate all required imports
 
 
-			public class %(identifier)<T extends %(entity)> extends EntityModel<%(entity)> {
+			public class %(identifier)<T extends %(entity)> extends EntityModel<T> {
 				// This layer location should be baked with EntityRendererProvider.Context in the entity renderer and passed into this model's constructor
 				public static final ModelLayerLocation LAYER_LOCATION = new ModelLayerLocation(new ResourceLocation("modid", "%(identifier_rl)"), "main");
 				%(fields)
@@ -271,7 +271,8 @@ const Templates = {
 				}
 			}`,
 		field: `private final ModelPart %(bone);`,
-		model_part: `this.%(bone) = root.getChild("%(bone)");`,
+		model_part: `?(has_no_parent)this.%(bone) = root.getChild("%(bone)");
+			?(has_parent)this.%(bone) = this.%(parent).getChild("%(bone)");`,
 		bone:
 			`?(has_no_parent)PartDefinition %(bone) = partdefinition.addOrReplaceChild("%(bone)", CubeListBuilder.create()
 			?(has_parent)PartDefinition %(bone) = %(parent).addOrReplaceChild("%(bone)", CubeListBuilder.create()
@@ -312,7 +313,8 @@ const Templates = {
 				}
 			}`,
 		field: `private final ModelPart %(bone);`,
-		model_part: `this.%(bone) = root.getChild("%(bone)");`,
+		model_part: `?(has_no_parent)this.%(bone) = root.getChild("%(bone)");
+					?(has_parent)this.%(bone) = this.%(parent).getChild("%(bone)");`,
 		bone:
 			`?(has_no_parent)ModelPartData %(bone) = modelPartData.addChild("%(bone)", ModelPartBuilder.create()
 			?(has_parent)ModelPartData %(bone) = %(parent).addChild("%(bone)", ModelPartBuilder.create()
@@ -483,7 +485,7 @@ var codec = new Codec('modded_entity', {
 		let model = Templates.get('file');
 
 		model = model.replace(R('bb_version'), Blockbench.version);
-		model = model.replace(R('entity'), Project.modded_entity_entity_class || '');
+		model = model.replace(R('entity'), Project.modded_entity_entity_class || 'Entity');
 		model = model.replace(R('identifier'), identifier);
 		model = model.replace(R('identifier_rl'), identifier.toLowerCase().replace(' ', '_'));
 		model = model.replace(R('texture_width'), Project.texture_width);
@@ -494,7 +496,7 @@ var codec = new Codec('modded_entity', {
 			let group_snippets = [];
 			for (var group of all_groups) {
 				if ((group instanceof Group === false && !group.is_catch_bone) || !group.export) continue;
-				if (group.is_rotation_subgroup) continue;
+				if (group.is_rotation_subgroup && Templates.get('model_part')) continue;
 				//if (usesLayerDef && group.parent instanceof Group) continue;
 				let snippet = Templates.get('field')
 					.replace(R('bone'), group.name)
@@ -609,7 +611,12 @@ var codec = new Codec('modded_entity', {
 				if (group.is_rotation_subgroup) continue;
 				//if (usesLayerDef && group.parent instanceof Group) continue;
 				let modelPart = snippet
-					.replace(R('bone'), group.name);
+					.replace(R('bone'), group.name)
+					.replace(/\t+/, '')
+					.replace(/(?:\n|^)\?\(has_parent\).+/, group.parent instanceof Group ? Templates.keepLine : '')
+					.replace(/(?:\n|^)\?\(has_no_parent\).+/, group.parent instanceof Group ? '' : Templates.keepLine)
+					.trim()
+					.replace(R('parent'), group.parent.name)
 				group_snippets.push(modelPart);
 			}
 			return group_snippets.join('\n\t\t')

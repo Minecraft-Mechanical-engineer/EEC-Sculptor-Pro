@@ -1,56 +1,4 @@
 //Actions
-function origin2geometry() {
-
-	if (Format.bone_rig && Group.selected) {
-		Undo.initEdit({group: Group.selected})
-
-		if (!Group.selected || Group.selected.children.length === 0) return;
-		var position = new THREE.Vector3();
-		let amount = 0;
-		Group.selected.children.forEach(function(obj) {
-			if (obj.getWorldCenter) {
-				position.add(obj.getWorldCenter());
-				amount++;
-			}
-		})
-		position.divideScalar(amount);
-		Group.selected.mesh.parent.worldToLocal(position);
-		if (Group.selected.parent instanceof Group) {
-			position.x += Group.selected.parent.origin[0];
-			position.y += Group.selected.parent.origin[1];
-			position.z += Group.selected.parent.origin[2];
-		}
-		Group.selected.transferOrigin(position.toArray());
-
-	} else if (Outliner.selected[0]) {
-		Undo.initEdit({elements: Outliner.selected})
-
-		var center = getSelectionCenter();
-		var original_center = center.slice();
-		
-		Outliner.selected.forEach(element => {
-			if (!element.transferOrigin) return;
-			if (Format.bone_rig && element.parent instanceof Group) {
-				var v = new THREE.Vector3().fromArray(original_center);
-				element.parent.mesh.worldToLocal(v);
-				v.x += element.parent.origin[0];
-				v.y += element.parent.origin[1];
-				v.z += element.parent.origin[2];
-				center = v.toArray();
-				element.transferOrigin(center)
-			} else {
-				element.transferOrigin(original_center)
-			}
-		})
-	}
-	Canvas.updateView({
-		elements: Outliner.selected,
-		element_aspects: {transform: true, geometry: true},
-		groups: Group.selected && [Group.selected],
-		selection: true
-	});
-	Undo.finishEdit('Center pivot')
-}
 function getSelectionCenter(all = false) {
 	if (Group.selected && selected.length == 0 && !all) {
 		let vec = THREE.fastWorldPosition(Group.selected.mesh, new THREE.Vector3());
@@ -71,7 +19,7 @@ function getSelectionCenter(all = false) {
 	let center = (min[0] == Infinity) ? [0, 0, 0] : max.V3_add(min).V3_divide(2);
 	
 	if (!Format.centered_grid) {
-		center.V3_add(8, 8, 8)
+		center.V3_add(8, 0, 8)
 	}
 	return center;
 }
@@ -961,7 +909,7 @@ BARS.defineActions(function() {
 	new BarSelect('rotation_space', {
 		condition: {modes: ['edit', 'animate', 'pose'], tools: ['rotate_tool']},
 		category: 'transform',
-		value: 'parent',
+		value: 'local',
 		options: {
 			global: 'action.transform_space.global',
 			parent: 'action.transform_space.parent',
@@ -982,7 +930,6 @@ BARS.defineActions(function() {
 			global: 'action.transform_space.global',
 			parent: 'action.transform_space.parent',
 			local: 'action.transform_space.local',
-			normal: {condition: () => Mesh.selected.length, name: true}
 		},
 		onChange() {
 			updateSelection();
@@ -1783,7 +1730,7 @@ BARS.defineActions(function() {
 	new Action('toggle_shade', {
 		icon: 'wb_sunny',
 		category: 'transform',
-		condition: () => Format.java_face_properties && Modes.edit,
+		condition: () => Format.java_cube_shading_properties && Modes.edit,
 		click() {toggleCubeProperty('shade')}
 	})
 	new Action('toggle_mirror_uv', {
@@ -1816,7 +1763,109 @@ BARS.defineActions(function() {
 		icon: 'filter_center_focus',
 		category: 'transform',
 		condition: {modes: ['edit', 'animate'], selected: {outliner: true}},
-		click() {origin2geometry()}
+		click() {
+			if (Format.bone_rig && Group.selected) {
+				Undo.initEdit({group: Group.selected})
+
+				if (!Group.selected || Group.selected.children.length === 0) return;
+				var position = new THREE.Vector3();
+				let amount = 0;
+				Group.selected.children.forEach(function(obj) {
+					if (obj.getWorldCenter) {
+						position.add(obj.getWorldCenter());
+						amount++;
+					}
+				})
+				position.divideScalar(amount);
+				Group.selected.mesh.parent.worldToLocal(position);
+				if (Group.selected.parent instanceof Group) {
+					position.x += Group.selected.parent.origin[0];
+					position.y += Group.selected.parent.origin[1];
+					position.z += Group.selected.parent.origin[2];
+				}
+				Group.selected.transferOrigin(position.toArray());
+
+			} else if (Outliner.selected[0]) {
+				Undo.initEdit({elements: Outliner.selected})
+
+				var center = getSelectionCenter();
+				var original_center = center.slice();
+				
+				Outliner.selected.forEach(element => {
+					if (!element.transferOrigin) return;
+					if (Format.bone_rig && element.parent instanceof Group) {
+						var v = new THREE.Vector3().fromArray(original_center);
+						element.parent.mesh.worldToLocal(v);
+						v.x += element.parent.origin[0];
+						v.y += element.parent.origin[1];
+						v.z += element.parent.origin[2];
+						center = v.toArray();
+						element.transferOrigin(center)
+					} else {
+						element.transferOrigin(original_center)
+					}
+				})
+			}
+			Canvas.updateView({
+				elements: Outliner.selected,
+				element_aspects: {transform: true, geometry: true},
+				groups: Group.selected && [Group.selected],
+				selection: true
+			});
+			Undo.finishEdit('Center pivot');
+		}
+	})
+	new Action('center_individual_pivots', {
+		icon: 'center_focus_weak',
+		category: 'transform',
+		condition: {modes: ['edit', 'animate'], selected: {outliner: true}},
+		click() {
+			Undo.initEdit({outliner: true, elements: Outliner.selected})
+			for (let group of Group.all) {
+				if (!group.selected) continue;
+				let position = new THREE.Vector3();
+				let amount = 0;
+				group.children.forEach((obj) => {
+					if (obj.getWorldCenter) {
+						position.add(obj.getWorldCenter());
+						amount++;
+					}
+				})
+				position.divideScalar(amount);
+				group.mesh.parent.worldToLocal(position);
+				if (group.parent instanceof Group) {
+					position.x += group.parent.origin[0];
+					position.y += group.parent.origin[1];
+					position.z += group.parent.origin[2];
+				}
+				group.transferOrigin(position.toArray());
+
+			}
+			for (let element of Outliner.selected) {
+				if (!element.getWorldCenter || !element.transferOrigin) continue;
+				let center = element.getWorldCenter().toArray();
+				let original_center = center.slice();
+				
+				if (Format.bone_rig && element.parent instanceof Group) {
+					let v = new THREE.Vector3().fromArray(original_center);
+					element.parent.mesh.worldToLocal(v);
+					v.x += element.parent.origin[0];
+					v.y += element.parent.origin[1];
+					v.z += element.parent.origin[2];
+					center = v.toArray();
+					element.transferOrigin(center)
+				} else {
+					element.transferOrigin(original_center)
+				}
+			}
+			Canvas.updateView({
+				elements: Outliner.selected,
+				element_aspects: {transform: true, geometry: true},
+				groups: Group.selected && [Group.selected],
+				selection: true
+			});
+			Undo.finishEdit('Center individual pivots');
+		}
 	})
 	new Action('rescale_toggle', {
 		icon: 'check_box_outline_blank',
@@ -1907,7 +1956,7 @@ BARS.defineActions(function() {
 	})
 	new Action('auto_set_cullfaces', {
 		icon: 'smart_button',
-		condition: () => Modes.edit && Format.java_face_properties,
+		condition: () => Modes.edit && Format.cullfaces,
 		click() {
 			if (!Cube.selected.length) {
 				BarItems.select_all.click();
@@ -1934,7 +1983,8 @@ BARS.defineActions(function() {
 				});
 			})
 
-			Undo.finishEdit('Automatically set cullfaces')
+			updateSelection();
+			Undo.finishEdit('Automatically set cullfaces');
 		}
 	})
 })

@@ -6,12 +6,37 @@ const StartScreen = {
 	}
 };
 
+/**
+ * 
+ * @param {string} id Identifier
+ * @param {object} data 
+ * @param {object} data.graphic
+ * @param {'icon'|string} data.graphic.type
+ * @param {string} data.graphic.icon
+ * @param {string} data.graphic.source
+ * @param {number} data.graphic.width
+ * @param {number} data.graphic.height
+ * @param {number} data.graphic.aspect_ratio Section aspect ratio
+ * @param {string} data.graphic.description Markdown string
+ * @param {string} data.graphic.text_color
+ * @param {Array.<{text: String, type: String, list: Array.String, click: Function}>} data.text
+ * @param {'vertical'|'horizontal'} data.layout
+ * @param {Array} data.features
+ * @param {boolean} data.closable
+ * @param {Function} data.click
+ * @param {string} data.color
+ * @param {string} data.text_color
+ * @param {boolean} data.last
+ * @param {string} data.insert_after
+ * @param {string} data.insert_before
+ * @returns 
+ */
 function addStartScreenSection(id, data) {
 	if (typeof id == 'object') {
 		data = id;
 		id = '';
 	}
-	var obj = $(Interface.createElement('section', {id}))
+	var obj = $(Interface.createElement('section', {class: 'start_screen_section', section_id: id}))
 	if (typeof data.graphic === 'object') {
 		var left = $('<div class="start_screen_left graphic"></div>')
 		obj.append(left)
@@ -54,8 +79,9 @@ function addStartScreenSection(id, data) {
 			var content = line.text ? pureMarked(tl(line.text)) : '';
 			switch (line.type) {
 				case 'h1': var tag = 'h1'; break;
-				case 'h2': var tag = 'h3'; break;
-				case 'h3': var tag = 'h4'; break;
+				case 'h2': var tag = 'h2'; break;
+				case 'h3': var tag = 'h3'; break;
+				case 'h4': var tag = 'h4'; break;
 				case 'list':
 					var tag = 'ul class="list_style"';
 					line.list.forEach(string => {
@@ -114,9 +140,9 @@ function addStartScreenSection(id, data) {
 	if (data.last) {
 		$('#start_screen > content').append(obj);
 	} else if (data.insert_after) {
-		$('#start_screen > content').find(`#${data.insert_after}`).after(obj);
+		$('#start_screen > content').find(`.start_screen_section[section_id="${data.insert_after}"]`).after(obj);
 	} else if (data.insert_before) {
-		$('#start_screen > content').find(`#${data.insert_before}`).before(obj);
+		$('#start_screen > content').find(`.start_screen_section[section_id="${data.insert_before}"]`).before(obj);
 	} else {
 		$('#start_screen > content').prepend(obj);
 	}
@@ -155,16 +181,16 @@ onVueSetup(async function() {
 
 			slideshow: [
 				{
-					source: "./assets/splash_art/1.png",
-					description: "Splash Art 1st Place by [morange](https://twitter.com/OrangewithMC) & [PeacedoveWum](https://twitter.com/PeacedoveWum)",
+					source: "./assets/splash_art/1.webp",
+					description: "Splash Art 1st Place by [BonoGakure](https://twitter.com/bonogakure) & [GlenFebrian](https://twitter.com/glenn_turu)",
 				},
 				{
-					source: "./assets/splash_art/2.png",
-					description: "Splash Art 2nd Place by [Wackyblocks](https://twitter.com/Wackyblocks)",
+					source: "./assets/splash_art/2.webp",
+					description: "Splash Art 2nd Place by [Wanwin](https://wan-win.com/#3darts) & Artem x",
 				},
 				{
-					source: "./assets/splash_art/3.png",
-					description: "Splash Art 3rd Place by [David Grindholmen](https://david_grindholmen.artstation.com/) & [Quinten Bench](https://quintenbench.wixsite.com/quinten-bench)",
+					source: "./assets/splash_art/3.webp",
+					description: "Splash Art 3rd Place by [FairyZelz](https://x.com/FairyZelz) & [AnolXD](https://x.com/_AnolXD_)",
 				}
 			],
 			show_splash_screen: (Blockbench.hasFlag('after_update') || settings.always_show_splash_art.value),
@@ -227,7 +253,7 @@ onVueSetup(async function() {
 						name: 'menu.texture.folder',
 						icon: 'folder',
 						click() {
-							shell.showItemInFolder(recent_project.path)
+							showItemInFolder(recent_project.path)
 						}
 					},
 					{
@@ -341,7 +367,7 @@ onVueSetup(async function() {
 		template: `
 			<div id="start_screen">
 				<content>
-					<section id="splash_screen" v-if="show_splash_screen">
+					<section id="splash_screen" v-if="show_splash_screen" class="start_screen_section" section_id="splash_screen">
 						<div class="splash_art_slideshow_image" :style="{backgroundImage: getBackground(slideshow[slideshow_selected].source)}">
 							<p v-if="slideshow[slideshow_selected].description" class="start_screen_graphic_description" v-html="pureMarked(slideshow[slideshow_selected].description)"></p>
 						</div>
@@ -353,7 +379,7 @@ onVueSetup(async function() {
 						<i class="material-icons start_screen_close_button" @click="show_splash_screen = false">clear</i>
 					</section>
 
-					<section id="start_files">
+					<section id="start_files" class="start_screen_section" section_id="start_files">
 
 						<div class="start_screen_left" v-if="!(selected_format_id && mobile_layout)">
 							<h2>${tl('mode.start.new')}</h2>
@@ -494,30 +520,6 @@ onVueSetup(async function() {
 	if (settings.streamer_mode.value) {
 		updateStreamerModeNotification()
 	}
-	
-	//Backup Model
-	let has_backups = await AutoBackup.hasBackups();
-	if (has_backups && (!isApp || !currentwindow.webContents.second_instance)) {
-
-		let section = addStartScreenSection({
-			color: 'var(--color-back)',
-			graphic: {type: 'icon', icon: 'fa-archive'},
-			insert_before: 'start_files',
-			text: [
-				{type: 'h2', text: tl('message.recover_backup.title')},
-				{text: tl('message.recover_backup.message')},
-				{type: 'button', text: tl('message.recover_backup.recover'), click: (e) => {
-					AutoBackup.recoverAllBackups().then(() => {
-						section.delete();
-					});
-				}},
-				{type: 'button', text: tl('dialog.discard'), click: (e) => {
-					AutoBackup.removeAllBackups();
-					section.delete();
-				}}
-			]
-		})
-	}
 });
 
 
@@ -571,7 +573,7 @@ ModelLoader.loaders = {};
 		let twitter_ad;
 		if (Blockbench.startup_count < 20 && Blockbench.startup_count % 5 === 4) {
 			twitter_ad = true;
-			addStartScreenSection({
+			addStartScreenSection('twitter_link', {
 				color: '#1da1f2',
 				text_color: '#ffffff',
 				graphic: {type: 'icon', icon: 'fab.fa-twitter'},
@@ -584,7 +586,7 @@ ModelLoader.loaders = {};
 		}
 		//Discord
 		if (Blockbench.startup_count < 6 && !twitter_ad) {
-			addStartScreenSection({
+			addStartScreenSection('discord_link', {
 				color: '#5865F2',
 				text_color: '#ffffff',
 				graphic: {type: 'icon', icon: 'fab.fa-discord'},
@@ -656,7 +658,7 @@ ModelLoader.loaders = {};
 					}
 				},
 				template: `
-					<section id="quick_setup">
+					<section id="quick_setup" section_id="quick_setup" class="start_screen_section">
 						<i class="material-icons start_screen_close_button" @click="close()">clear</i>
 						<h2>${tl('mode.start.quick_setup')}</h2>
 

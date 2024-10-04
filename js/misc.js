@@ -145,7 +145,7 @@ function updateSelection(options = {}) {
 		}
 	})
 	for (var i = Outliner.selected.length-1; i >= 0; i--) {
-		if (!selected.includes(Outliner.selected[i])) {
+		if (!Project.elements.includes(Outliner.selected[i])) {
 			Outliner.selected.splice(i, 1)
 		}
 	}
@@ -203,6 +203,8 @@ function updateSelection(options = {}) {
 	Preview.all.forEach(preview => {
 		preview.updateAnnotations();
 	})
+	if (Condition(BarItems.layer_opacity.condition)) BarItems.layer_opacity.update();
+	if (Condition(BarItems.layer_blend_mode.condition)) BarItems.layer_blend_mode.set(TextureLayer.selected?.blend_mode);
 
 	BARS.updateConditions();
 	delete TickUpdates.selection;
@@ -257,8 +259,34 @@ const AutoBackup = {
 				console.log(`Upgraded ${Object.keys(parsed_backup_models).length} project back-ups to indexedDB`);
 			}
 		}
-		request.onsuccess = function() {
+		request.onsuccess = async function() {
 			AutoBackup.db = request.result;
+			
+			// Start Screen Message
+			let has_backups = await AutoBackup.hasBackups();
+			if (has_backups && (!isApp || !currentwindow.webContents.second_instance)) {
+
+				let section = addStartScreenSection('recover_backup', {
+					color: 'var(--color-back)',
+					graphic: {type: 'icon', icon: 'fa-archive'},
+					insert_before: 'start_files',
+					text: [
+						{type: 'h3', text: tl('message.recover_backup.title')},
+						{text: tl('message.recover_backup.message')},
+						{type: 'button', text: tl('message.recover_backup.recover'), click: (e) => {
+							AutoBackup.recoverAllBackups().then(() => {
+								section.delete();
+							});
+						}},
+						{type: 'button', text: tl('dialog.discard'), click: (e) => {
+							AutoBackup.removeAllBackups();
+							section.delete();
+						}}
+					]
+				})
+			}
+
+			AutoBackup.backupProjectLoop(false);
 		}
 	},
 	async backupOpenProject() {
@@ -292,12 +320,17 @@ const AutoBackup = {
 			let transaction = AutoBackup.db.transaction('projects', 'readonly');
 			let store = transaction.objectStore('projects');
 			let request = store.getAll();
-			request.onsuccess = function() {
+			request.onsuccess = async function() {
 				let projects = request.result;
 				for (let project of projects) {
-					let parsed_content = JSON.parse(project.data);
-					setupProject(Formats[parsed_content.meta.model_format] || Formats.free, project.uuid);
-					Codecs.project.parse(parsed_content, 'backup.bbmodel')
+					try {
+						let parsed_content = JSON.parse(project.data);
+						setupProject(Formats[parsed_content.meta.model_format] || Formats.free, project.uuid);
+						Codecs.project.parse(parsed_content, 'backup.bbmodel');
+						await new Promise(r => setTimeout(r, 40));
+					} catch(err) {
+						console.error(err);
+					}
 				}
 				resolve();
 			}
@@ -340,21 +373,30 @@ const AutoBackup = {
 				reject();
 			}
 		});
+	},
+	loop_timeout: null,
+	backupProjectLoop(run_save = true) {
+		if (run_save && Project && (Outliner.root.length || Project.textures.length)) {
+			try {
+				AutoBackup.backupOpenProject();
+			} catch (err) {
+				console.error('Unable to create backup. ', err)
+			}
+		}
+		let interval = settings.recovery_save_interval.value;
+		if (interval != 0) {
+			interval = Math.max(interval, 5);
+			AutoBackup.loop_timeout = setTimeout(() => AutoBackup.backupProjectLoop(true), interval * 1000);
+		}
 	}
 }
-AutoBackup.initialize();
 
 
 setInterval(function() {
 	if (Project && (Outliner.root.length || Project.textures.length)) {
 		Validator.validate();
-		try {
-			AutoBackup.backupOpenProject();
-		} catch (err) {
-			console.error('Unable to create backup. ', err)
-		}
 	}
-}, 1e3*30)
+}, 1e3*30);
 //Misc
 const TickUpdates = {
 	Run() {
@@ -366,10 +408,6 @@ const TickUpdates = {
 			if (TickUpdates.UVEditor) {
 				delete TickUpdates.UVEditor;
 				UVEditor.loadData()
-			}
-			if (TickUpdates.texture_list) {
-				delete TickUpdates.texture_list;
-				loadTextureDraggable();
 			}
 			if (TickUpdates.keyframe_selection) {
 				delete TickUpdates.keyframe_selection;
@@ -398,6 +436,15 @@ function factoryResetAndReload() {
 		console.log('Cleared Local Storage');
 		window.location.reload(true);
 	}
+}
+
+function benchmarkCode(id, iterations, code) {
+	if (!iterations) iterations = 1000;
+	console.time(id);
+	for (let i = 0; i < iterations; i++) {
+		code();
+	}
+	console.timeEnd(id);
 }
 
 const documentReady = new Promise((resolve, reject) => {

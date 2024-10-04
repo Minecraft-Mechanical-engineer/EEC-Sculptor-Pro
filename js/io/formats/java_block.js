@@ -22,14 +22,14 @@ var codec = new Codec('java_block', {
 		if (options === undefined) options = {}
 		var clear_elements = []
 		var textures_used = []
-		var element_index_lut = []
+		var element_indices = []
 		var overflow_cubes = [];
 
 		function computeCube(s) {
 			if (s.export == false) return;
 			//Create Element
 			var element = {}
-			element_index_lut[Cube.all.indexOf(s)] = clear_elements.length
+			element_indices[Cube.all.indexOf(s)] = clear_elements.length
 
 			if ((options.cube_name !== false && !settings.minifiedout.value) || options.cube_name === true) {
 				if (s.name !== 'cube') {
@@ -47,7 +47,10 @@ var codec = new Codec('java_block', {
 			if (s.shade === false) {
 				element.shade = false
 			}
-			if (!s.rotation.allEqual(0) || !s.origin.allEqual(0)) {
+			if (s.light_emission) {
+				element.light_emission = s.light_emission;
+			}
+			if (!s.rotation.allEqual(0) || (!s.origin.allEqual(0) && settings.java_export_pivots.value)) {
 				var axis = s.rotationAxis()||'y';
 				element.rotation = new oneLiner({
 					angle: s.rotation[getAxisNumber(axis)],
@@ -235,7 +238,28 @@ var codec = new Codec('java_block', {
 			}
 		}
 		if (checkExport('groups', (settings.export_groups.value && Group.all.length))) {
-			groups = compileGroups(false, element_index_lut)
+			let groups = []
+			function iterate(array, save_array) {
+				let i = 0;
+				for (let element of array) {
+					if (element.type === 'group') {
+						if (element.export === true) {
+							let obj = element.compile(false)
+							if (element.children.length > 0) {
+								iterate(element.children, obj.children)
+							}
+							save_array.push(obj)
+						}
+					} else {
+						let index = element_indices[elements.indexOf(element)]
+						if (index >= 0) {
+							save_array.push(index)
+						}
+					}
+					i++;
+				}
+			}
+			iterate(Outliner.root, groups);
 			var i = 0;
 			while (i < groups.length) {
 				if (typeof groups[i] === 'object') {
@@ -412,10 +436,63 @@ var codec = new Codec('java_block', {
 			})
 		}
 		if (model.groups && model.groups.length > 0) {
+
+			function parseGroupsForJava(array, import_reference, startIndex) {
+				function iterate(array, save_array, addGroup) {
+					var i = 0;
+					while (i < array.length) {
+						if (typeof array[i] === 'number' || typeof array[i] === 'string') {
+			
+							if (typeof array[i] === 'number') {
+								var obj = elements[array[i] + (startIndex ? startIndex : 0) ]
+							} else {
+								var obj = OutlinerNode.uuids[array[i]];
+							}
+							if (obj) {
+								obj.removeFromParent()
+								save_array.push(obj)
+								obj.parent = addGroup
+							}
+						} else {
+							if (OutlinerNode.uuids[array[i].uuid] instanceof Group) {
+								OutlinerNode.uuids[array[i].uuid].removeFromParent();
+								delete OutlinerNode.uuids[array[i].uuid];
+							}
+							var obj = new Group(array[i], array[i].uuid)
+							obj.parent = addGroup
+							obj.isOpen = !!array[i].isOpen
+							if (array[i].uuid) {
+								obj.uuid = array[i].uuid
+							}
+							save_array.push(obj)
+							obj.init()
+							if (array[i].children && array[i].children.length > 0) {
+								iterate(array[i].children, obj.children, obj)
+							}
+							if (array[i].content && array[i].content.length > 0) {
+								iterate(array[i].content, obj.children, obj)
+							}
+						}
+						i++;
+					}
+				}
+				if (import_reference instanceof Group && startIndex !== undefined) {
+					iterate(array, import_reference.children, import_reference)
+				} else {
+					if (!import_reference) {
+						Group.all.forEach(group => {
+							group.removeFromParent();
+						})
+						Group.all.empty();
+					}
+					iterate(array, Outliner.root, 'root');
+				}
+			}
+
 			if (!add) {
-				parseGroups(model.groups)
+				parseGroupsForJava(model.groups)
 			} else if (import_group) {
-				parseGroups(model.groups, import_group, oid)
+				parseGroupsForJava(model.groups, import_group, oid)
 			}
 		}
 		if (import_group) {
@@ -527,7 +604,9 @@ var format = new ModelFormat({
 	rotation_snap: true,
 	optional_box_uv: true,
 	uv_rotation: true,
+	java_cube_shading_properties: true,
 	java_face_properties: true,
+	cullfaces: true,
 	animated_textures: true,
 	select_texture_for_particles: true,
 	texture_mcmeta: true,

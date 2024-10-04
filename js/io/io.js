@@ -106,6 +106,10 @@ async function loadImages(files, event) {
 	})
 
 	// Options
+	if (event == undefined) {
+		// When using "Open with > Blockbench", ensure these are listed first
+		options.edit = null;
+	}
 	if (Project && texture_li && texture_li.length) {
 		replace_texture = Texture.all.findInArray('uuid', texture_li.attr('texid'))
 		if (replace_texture) {
@@ -143,7 +147,7 @@ async function loadImages(files, event) {
 			let new_textures = [];
 			Undo.initEdit({textures: new_textures});
 			files.forEach(function(f, i) {
-				let tex = new Texture().fromFile(f).add().fillParticle();
+				let tex = new Texture().fromFile(f).add(false, true).fillParticle();
 				new_textures.push(tex);
 				if (Format.image_editor && i == 0) {
 					tex.select();
@@ -578,6 +582,14 @@ function autoParseJSON(data, feedback) {
 			data = JSON.parse(data)
 		} catch (err) {
 			if (feedback === false) return;
+			if (data.match(/\n\r?[><]{7}/)) {
+				Blockbench.showMessageBox({
+					title: 'message.invalid_file.title',
+					icon: 'fab.fa-git-alt',
+					message: 'message.invalid_file.merge_conflict'
+				})
+				return;
+			}
 			let error_part = '';
 			function logErrantPart(whole, start, length) {
 				var line = whole.substr(0, start).match(/\n/gm)

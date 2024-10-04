@@ -9,10 +9,10 @@ function buildForm(dialog) {
 			dialog_content.append('<hr />')
 			
 		} else {
-			let bar = $(`<div class="dialog_bar form_bar form_bar_${form_id}"></div>`)
+			let bar = $(`<div class="dialog_bar bar form_bar form_bar_${form_id}"></div>`)
 			let label;
-			if (data.label) {
-				label = Interface.createElement('label', {class: 'name_space_left', for: form_id}, tl(data.label)+(data.nocolon?'':':'))
+			if (typeof data.label == 'string') {
+				label = Interface.createElement('label', {class: 'name_space_left', for: form_id}, tl(data.label)+((data.nocolon || !data.label)?'':':'))
 				bar.append(label);
 				if (!data.full_width && data.condition !== false) {
 					dialog.max_label_width = Math.max(getStringWidth(label.textContent), dialog.max_label_width)
@@ -128,7 +128,7 @@ function buildForm(dialog) {
 					let select_input = new Interface.CustomElements.SelectInput(form_id, {
 						options: data.options,
 						value: data.value || data.default,
-						onChange() {
+						onInput() {
 							dialog.updateFormValues();
 						}
 					});
@@ -224,22 +224,19 @@ function buildForm(dialog) {
 							display.textContent = trimFloatNumber(result[form_id]);
 						})
 					} else {
-						let display = Interface.createElement('input', {
-							class: 'range_input_label dark_bordered focusable_input',
-							type: 'number',
-							value: data.value,
-							min: data.min,
-							max: data.max,
-							step: data.step || 1,
+						bar.addClass('slider_input_combo');
+						let numeric_input = new Interface.CustomElements.NumericInput(form_id + '_number', {
+							value: data.value ?? 0,
+							min: data.min, max: data.max, step: data.step,
+							onChange() {
+								input_element.val(numeric_input.value);
+								dialog.updateFormValues();
+							}
 						});
-						bar.append(display);
+						bar.append(numeric_input.node);
 						input_element.on('input', () => {
 							let result = parseFloat(input_element.val());
-							display.value = result;
-						})
-						display.addEventListener('input', (e) => {
-							input_element.val(parseFloat(display.value));
-							dialog.updateFormValues();
+							numeric_input.value = result;
 						})
 					}
 					input_element.on('input', () => {
@@ -548,6 +545,18 @@ window.Dialog = class Dialog {
 
 		this.sidebar = options.sidebar ? new DialogSidebar(options.sidebar, this) : null;
 		this.title_menu = options.title_menu || null;
+		if (options.progress_bar) {
+			this.progress_bar = {
+				setProgress: (progress) => {
+					this.progress_bar.progress = progress;
+					if (this.progress_bar.node) {
+						this.progress_bar.node.style.setProperty('--progress', progress);
+					}
+				},
+				progress: options.progress_bar.progress ?? 0,
+				node: null
+			}
+		}
 
 		this.width = options.width
 		this.draggable = options.draggable
@@ -646,6 +655,16 @@ window.Dialog = class Dialog {
 		}
 		if (update) this.updateFormValues();
 	}
+	setFormToggles(values, update = true) {
+		for (let form_id in this.form) {
+			let data = this.form[form_id];
+			if (values[form_id] != undefined && typeof data == 'object' && data.input_toggle && data.bar) {
+				data.input_toggle.checked = values[form_id];
+				data.bar.toggleClass('form_toggle_disabled', !data.input_toggle.checked);
+			}
+		}
+		if (update) this.updateFormValues();
+	}
 	getFormResult() {
 		let result = {}
 		if (this.form) {
@@ -680,7 +699,7 @@ window.Dialog = class Dialog {
 							break;
 						case 'range':
 							if (data.editable_range_label) {
-								result[form_id] = Math.clamp(parseFloat(data.bar.find('input.range_input_label').val())||0, data.min, data.max);
+								result[form_id] = Math.clamp(parseFloat(data.bar.find('input#'+form_id+'_number').val())||0, data.min, data.max);
 							} else {
 								result[form_id] = Math.clamp(parseFloat(data.bar.find('input#'+form_id).val())||0, data.min, data.max);
 							}
@@ -799,6 +818,14 @@ window.Dialog = class Dialog {
 				? Math.clamp(this.max_label_width+9, 0, width/2)
 				: Math.clamp(this.max_label_width+16, 0, width - 100);
 			this.object.style.setProperty('--max_label_width', max_width + 'px');
+		}
+
+		if (this.progress_bar) {
+			this.progress_bar.node = Interface.createElement('div', {class: 'progress_bar'},
+				Interface.createElement('div', {class: 'progress_bar_inner'})
+			)
+			this.progress_bar.setProgress(this.progress_bar.progress);
+			this.object.querySelector('content.dialog_content').append(this.progress_bar.node);
 		}
 
 		if (this.buttons.length) {
@@ -1079,6 +1106,10 @@ window.MessageBox = class MessageBox extends Dialog {
 				let entry = Interface.createElement('li', {class: 'dialog_message_box_command'}, text);
 				if (command.icon) {
 					entry.prepend(Blockbench.getIconNode(command.icon));
+				}
+				if (command.description) {
+					let label = Interface.createElement('label', {}, tl(command.description));
+					entry.append(label);
 				}
 				entry.addEventListener('click', e => {
 					this.close(id, results, e);

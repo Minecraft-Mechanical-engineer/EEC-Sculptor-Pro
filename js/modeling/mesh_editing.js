@@ -111,6 +111,7 @@ class KnifeToolContext {
 	 */
 	constructor(mesh) {
 		this.mesh = mesh;
+		this.mesh_3d = mesh.mesh;
 		this.points = [];
 		this.hover_point = null;
 
@@ -123,8 +124,14 @@ class KnifeToolContext {
 		this.points_mesh.frustumCulled = false;
 		this.lines_mesh.frustumCulled = false;
 
-		this.mesh.mesh.add(this.points_mesh);
-		this.mesh.mesh.add(this.lines_mesh);
+		this.mesh_3d.add(this.points_mesh);
+		this.mesh_3d.add(this.lines_mesh);
+
+		this.unselect_listener = Blockbench.on('unselect_project', context => {
+			if (this == KnifeToolContext.current) {
+				this.remove();
+			}
+		})
 	}
 	showToast() {
 		this.toast = Blockbench.showToastNotification({
@@ -152,6 +159,7 @@ class KnifeToolContext {
 			snapped: false,
 			fkey: data.face
 		}
+		data.element.mesh.worldToLocal(point.position);
 		// Snapping
 		if (data.type == 'vertex') {
 			point.position.fromArray(this.mesh.vertices[data.vertex]);
@@ -162,11 +170,15 @@ class KnifeToolContext {
 			let point_b = Reusable.vec2.fromArray(this.mesh.vertices[data.vertices[1]]);
 			let a_b = new THREE.Vector3().copy(point_b).sub(point_a);
 			let a_p = new THREE.Vector3().copy(point.position).sub(point_a);
-			point.position.copy(point_a).addScaledVector(a_b, a_p.dot(a_b) / a_b.dot(a_b));
+			let subline_len = a_p.dot(a_b) / a_b.dot(a_b);
+			if (data.event.shiftKey || Pressing.overrides.shift) {
+				subline_len = Math.round(subline_len * 4) / 4;
+			}
+			point.position.copy(point_a).addScaledVector(a_b, subline_len);
 			point.snapped = true;
 		}
 		// Snap to existing points?
-		let pos = this.mesh.mesh.localToWorld(Reusable.vec1.copy(point.position));
+		let pos = this.mesh_3d.localToWorld(Reusable.vec1.copy(point.position));
 		let threshold = Preview.selected.calculateControlScale(pos) * 0.6;
 		let matching_point = this.points.find(other => {
 			return point.position.distanceTo(other.position) < threshold && !other.reuse_of;
@@ -182,6 +194,9 @@ class KnifeToolContext {
 			uv[1] = Math.round(uv[1] * factor) / factor;
 			let target = face.UVToLocal(uv);
 			point.position.copy(target);
+		} else if (data.event && (data.event.shiftKey || Pressing.overrides.shift) && point.fkey) {
+			let face = this.mesh.faces[point.fkey];
+			point.position.fromArray(face.getCenter());
 		}
 		if (this.points.length && point.position.distanceToSquared(this.points.last().position) < 0.001) return;
 
@@ -251,7 +266,7 @@ class KnifeToolContext {
 		if (this.points.length == 1) this.showToast();
 	}
 	apply() {
-		if (!this.mesh || !this.points.length) {
+		if (!this.mesh || !this.points.length || !Mesh.all.includes(this.mesh)) {
 			this.cancel();
 			return;
 		}
@@ -612,14 +627,239 @@ class KnifeToolContext {
 		this.remove();
 	}
 	remove() {
-		this.mesh.mesh.remove(this.points_mesh);
-		this.mesh.mesh.remove(this.lines_mesh);
-		delete this.mesh
+		if (this.mesh_3d) {
+			this.mesh_3d.remove(this.points_mesh);
+			this.mesh_3d.remove(this.lines_mesh);
+		}
+		delete this.mesh;
+		delete this.mesh_3d;
 		if (this.toast) this.toast.delete();
+		this.unselect_listener.delete();
 		KnifeToolContext.current = null;
 	}
 	static current = null;
 }
+class KnifeToolCubeContext {
+	constructor(cube) {
+		this.cube = cube;
+		this.face;
+		this.first_point_set = false;
+		this.valid_position = false;
+		this.axis = 0;
+		this.face_axis = 0;
+		this.first_point = new THREE.Vector3();
+		this.offset = 0;
+		this.preview_mesh = new THREE.Mesh(
+			new THREE.BoxGeometry(1, 1, 1),
+			new THREE.MeshBasicMaterial({color: Canvas.outlineMaterial.color}),
+		)
+		this.cross_mesh = new THREE.Mesh(
+			new THREE.PlaneGeometry(1, 1),
+			new THREE.MeshBasicMaterial({
+				map: KnifeToolCubeContext.map,
+				alphaTest: 0.1,
+				side: THREE.DoubleSide,
+				color: Canvas.outlineMaterial.color
+			}),
+		);
+
+		this.unselect_listener = Blockbench.on('unselect_project', context => {
+			if (this == KnifeToolContext.current) {
+				this.remove();
+			}
+		})
+		KnifeToolContext.current = this;
+	}
+	get mesh_3d() {
+		return this.cube.mesh;
+	}
+	get axis_letter() {
+		return getAxisLetter(this.axis);
+	}
+	hover(data) {
+		if (!data) {
+			if (this.cross_mesh.parent) {
+				this.cross_mesh.parent.remove(this.cross_mesh);
+			}
+			return;
+		}
+		let intersect = data.intersects[0];
+		if (!this.first_point_set) {
+			this.cube = data.element;
+			this.face = data.face;
+			this.first_point.copy(intersect.point);
+			this.mesh_3d.worldToLocal(this.first_point);
+
+			this.face_axis = KnifeToolCubeContext.face_axis[this.face];
+			let off_axes = [0, 1, 2].filter(a1 => a1 != this.face_axis);
+			let snap = canvasGridSize(data.event?.shiftKey || Pressing.overrides.shift, data.event?.ctrlOrCmd || Pressing.overrides.ctrl);
+			let modified_from = this.cube.from.slice().V3_subtract(this.cube.inflate);
+
+			this.first_point[getAxisLetter(off_axes[0])] = Math.round((this.first_point[getAxisLetter(off_axes[0])] - modified_from[off_axes[0]]) / snap) * snap + modified_from[off_axes[0]];
+			this.first_point[getAxisLetter(off_axes[1])] = Math.round((this.first_point[getAxisLetter(off_axes[1])] - modified_from[off_axes[1]]) / snap) * snap + modified_from[off_axes[1]];
+
+		} else {
+			this.mesh_3d.add(this.preview_mesh);
+			this.face_axis = KnifeToolCubeContext.face_axis[this.face];
+			let off_axes = [0, 1, 2].filter(a1 => a1 != this.face_axis);
+
+			let second_point = intersect.point;
+			this.mesh_3d.worldToLocal(second_point);
+			let val_1 = this.first_point[getAxisLetter(off_axes[0])] - second_point[getAxisLetter(off_axes[0])];
+			let val_2 = this.first_point[getAxisLetter(off_axes[1])] - second_point[getAxisLetter(off_axes[1])];
+			let direction = Math.abs(val_1) > Math.abs(val_2);
+			switch (this.face_axis) {
+				case 0: this.axis = direction ? 2 : 1; break;
+				case 1: this.axis = direction ? 2 : 0; break;
+				case 2: this.axis = direction ? 1 : 0; break;
+			}
+			this.offset = this.first_point[this.axis_letter];
+		}
+		this.updatePreview();
+	}
+	updatePreview() {
+		let pos = this.mesh_3d.localToWorld(new THREE.Vector3().copy(this.first_point));
+		let size = Preview.selected.calculateControlScale(pos) / 8;
+		if (!this.first_point_set) {
+			this.mesh_3d.add(this.cross_mesh);
+			this.cross_mesh.position.copy(this.first_point);
+			let face_axis = KnifeToolCubeContext.face_axis[this.face];
+			let face_direction = ['north', 'west', 'down'].includes(this.face) ? -1 : 1;
+			this.cross_mesh.position[getAxisLetter(face_axis)] += face_direction * size;
+			switch (face_axis) {
+				case 0: this.cross_mesh.rotation.set(0, Math.PI/2, 0); break;
+				case 1: this.cross_mesh.rotation.set(Math.PI/2, 0, 0); break;
+				case 2: this.cross_mesh.rotation.set(0, 0, 0); break;
+			}
+	
+			this.cross_mesh.scale.set(size * 16, size * 16, size * 16);
+		} else {
+			if (this.cross_mesh.parent) {
+				this.cross_mesh.parent.remove(this.cross_mesh);
+			}
+			this.mesh_3d.add(this.preview_mesh);
+			this.preview_mesh.position.set(
+				Math.lerp(this.cube.from[0] - this.cube.origin[0], this.cube.to[0] - this.cube.origin[0], 0.5),
+				Math.lerp(this.cube.from[1] - this.cube.origin[1], this.cube.to[1] - this.cube.origin[1], 0.5),
+				Math.lerp(this.cube.from[2] - this.cube.origin[2], this.cube.to[2] - this.cube.origin[2], 0.5),
+			)
+			this.preview_mesh.position[this.axis_letter] = this.offset;
+	
+			let pos = THREE.fastWorldPosition(this.preview_mesh);
+			let size = Preview.selected.calculateControlScale(pos) / 8;
+			this.preview_mesh.scale.set(...this.cube.size().map(v => v + this.cube.inflate * 2 + size));
+			this.preview_mesh.scale[this.axis_letter] = size;
+		}
+	}
+	addPoint(data) {
+		if (!data?.element) return;
+		if (!this.first_point_set) {
+			this.first_point_set = true;
+		} else {
+			this.apply();
+		}
+	}
+	apply() {
+		if (!this.cube || !Cube.all.includes(this.cube) || !this.first_point_set) {
+			this.cancel();
+			return;
+		}
+		let elements = [this.cube];
+		Undo.initEdit({elements});
+
+		if (this.cube.box_uv && Format.optional_box_uv) {
+			this.cube.box_uv = false;
+		}
+		let duplicate = this.cube.duplicate();
+		Outliner.selected.safePush(duplicate);
+		elements.safePush(duplicate);
+		let modified_from = this.cube.from.slice().V3_subtract(this.cube.inflate);
+		let modified_to = this.cube.to.slice().V3_subtract(this.cube.inflate);
+		let offset = this.offset + this.cube.origin[this.axis];
+		let offset_lerp = Math.getLerp(modified_from[this.axis], modified_to[this.axis], offset);
+
+		this.cube.to[this.axis] = offset - this.cube.inflate;
+		duplicate.from[this.axis] = offset + this.cube.inflate;
+
+		function modifyUV(face, index, inverted) {
+			index = (index - (face.rotation/90) + 8) % 4;
+			let index_opposite = (index+2)%4;
+			if (inverted) {
+				face.uv[index] = Math.lerp(face.uv[index], face.uv[index_opposite], offset_lerp);
+			} else {
+				face.uv[index] = Math.lerp(face.uv[index_opposite], face.uv[index], offset_lerp);
+			}
+		}
+		switch (this.axis) {
+			case 0: {
+				modifyUV(this.cube.faces.north, 0);
+				modifyUV(this.cube.faces.south, 2);
+				modifyUV(this.cube.faces.up, 2);
+				modifyUV(this.cube.faces.down, 2);
+
+				modifyUV(duplicate.faces.north, 2, true);
+				modifyUV(duplicate.faces.south, 0, true);
+				modifyUV(duplicate.faces.up, 0, true);
+				modifyUV(duplicate.faces.down, 0, true);
+				break;
+			}
+			case 1: {
+				modifyUV(this.cube.faces.north, 1);
+				modifyUV(this.cube.faces.south, 1);
+				modifyUV(this.cube.faces.east, 1);
+				modifyUV(this.cube.faces.west, 1);
+
+				modifyUV(duplicate.faces.north, 3, true);
+				modifyUV(duplicate.faces.south, 3, true);
+				modifyUV(duplicate.faces.east, 3, true);
+				modifyUV(duplicate.faces.west, 3, true);
+				break;
+			}
+			case 2: {
+				modifyUV(this.cube.faces.east, 0);
+				modifyUV(this.cube.faces.west, 2);
+				modifyUV(this.cube.faces.up, 3);
+				modifyUV(this.cube.faces.down, 1);
+
+				modifyUV(duplicate.faces.east, 2, true);
+				modifyUV(duplicate.faces.west, 0, true);
+				modifyUV(duplicate.faces.up, 1, true);
+				modifyUV(duplicate.faces.down, 3, true);
+				break;
+			}
+		}
+
+		Canvas.updateView({elements, element_aspects: {geometry: true, uv: true}, selection: true});
+		Undo.finishEdit('Use knife tool');
+		this.remove();
+	}
+	cancel() {
+		this.remove();
+	}
+	remove() {
+		if (this.cross_mesh.parent) {
+			this.cross_mesh.parent.remove(this.cross_mesh);
+		}
+		if (this.preview_mesh.parent) {
+			this.preview_mesh.parent.remove(this.preview_mesh);
+		}
+		delete this.cube;
+		delete this.cross_mesh;
+		delete this.precross_meshview_mesh;
+		this.unselect_listener.delete();
+		KnifeToolContext.current = null;
+	}
+	static face_axis = {
+		north: 2,
+		south: 2,
+		up: 1,
+		down: 1,
+		east: 0,
+		west: 0
+	}
+	static map = new THREE.TextureLoader().load('assets/crosshair.png');
+}
+KnifeToolCubeContext.map.magFilter = KnifeToolCubeContext.map.minFilter = THREE.NearestFilter;
 
 async function autoFixMeshEdit() {
 	let meshes = Mesh.selected;
@@ -653,7 +893,7 @@ async function autoFixMeshEdit() {
 			title: 'message.auto_fix_mesh_edit.title',
 			message: 'message.auto_fix_mesh_edit.overlapping_vertices',
 			commands: {
-				merge: 'message.auto_fix_mesh_edit.merge_vertices',
+				merge: {text: 'message.auto_fix_mesh_edit.merge_vertices', description: '('+tl('dialog.recommended_option')+')'},
 				revert: 'message.auto_fix_mesh_edit.revert'
 			},
 			buttons: ['dialog.ignore']
@@ -739,7 +979,7 @@ async function autoFixMeshEdit() {
 			title: 'message.auto_fix_mesh_edit.title',
 			message: 'message.auto_fix_mesh_edit.concave_quads',
 			commands: {
-				split: 'message.auto_fix_mesh_edit.split_quads',
+				split: {text: 'message.auto_fix_mesh_edit.split_quads', description: '('+tl('dialog.recommended_option')+')'},
 				revert: 'message.auto_fix_mesh_edit.revert'
 			},
 			buttons: ['dialog.ignore']
@@ -776,7 +1016,11 @@ async function autoFixMeshEdit() {
 							return true;
 						})
 						let off_corners = edges.find(edge => !edge.includes(concave_vkey))
-						if (!off_corners) return;
+						if (!off_corners) {
+							// not sure if this always works, but its only required in special cases (if the quad edge that should be split is already connected to another face).
+							let concave_index = sorted_vertices.indexOf(concave_vkey);
+							off_corners = (concave_index%2) ? [sorted_vertices[1], sorted_vertices[3]] : [sorted_vertices[0], sorted_vertices[2]];
+						}
 
 						let new_face = new MeshFace(mesh, face);
 						new_face.vertices.remove(off_corners[0]);
@@ -798,6 +1042,24 @@ async function autoFixMeshEdit() {
 			}
 			resolve();
 		})})
+	}
+}
+
+function cleanupOverlappingMeshFaces(mesh) {
+	for (let fkey in mesh.faces) {
+		let face = mesh.faces[fkey];
+		if (face.vertices.length < 2) {
+			delete mesh.faces[fkey];
+		} else {
+			for (let fkey2 in mesh.faces) {
+				let face2 = mesh.faces[fkey2];
+				if (fkey == fkey2 || !face2) continue;
+				let overlaps = face.vertices.allAre(vkey => face2.vertices.includes(vkey));
+				if (overlaps) {
+					delete mesh.faces[fkey];
+				}
+			}
+		}
 	}
 }
 
@@ -1009,7 +1271,7 @@ BARS.defineActions(function() {
 		form: {
 			shape: {label: 'dialog.add_primitive.shape', type: 'select', options: {
 				cuboid: 'dialog.add_primitive.shape.cube',
-				rounded_cuboid: 'dialog.add_primitive.shape.rounded_cuboid',
+				beveled_cuboid: 'dialog.add_primitive.shape.beveled_cuboid',
 				pyramid: 'dialog.add_primitive.shape.pyramid',
 				plane: 'dialog.add_primitive.shape.plane',
 				circle: 'dialog.add_primitive.shape.circle',
@@ -1020,12 +1282,12 @@ BARS.defineActions(function() {
 				torus: 'dialog.add_primitive.shape.torus',
 			}},
 			diameter: {label: 'dialog.add_primitive.diameter', type: 'number', value: 16},
-			align_edges: {label: 'dialog.add_primitive.align_edges', type: 'checkbox', value: true, condition: ({shape}) => !['cuboid', 'rounded_cuboid', 'pyramid', 'plane'].includes(shape)},
-			height: {label: 'dialog.add_primitive.height', type: 'number', value: 8, condition: ({shape}) => ['cylinder', 'cone', 'cuboid', 'rounded_cuboid', 'pyramid', 'tube'].includes(shape)},
+			align_edges: {label: 'dialog.add_primitive.align_edges', type: 'checkbox', value: true, condition: ({shape}) => !['cuboid', 'beveled_cuboid', 'pyramid', 'plane'].includes(shape)},
+			height: {label: 'dialog.add_primitive.height', type: 'number', value: 8, condition: ({shape}) => ['cylinder', 'cone', 'cuboid', 'beveled_cuboid', 'pyramid', 'tube'].includes(shape)},
 			sides: {label: 'dialog.add_primitive.sides', type: 'number', value: 12, min: 3, max: 48, condition: ({shape}) => ['cylinder', 'cone', 'circle', 'torus', 'sphere', 'tube'].includes(shape)},
 			minor_diameter: {label: 'dialog.add_primitive.minor_diameter', type: 'number', value: 4, condition: ({shape}) => ['torus', 'tube'].includes(shape)},
 			minor_sides: {label: 'dialog.add_primitive.minor_sides', type: 'number', value: 8, min: 2, max: 32, condition: ({shape}) => ['torus'].includes(shape)},
-			edge_size: {label: 'dialog.add_primitive.edge_size', type: 'number', value: 2, condition: ({shape}) => ['rounded_cuboid'].includes(shape)},
+			edge_size: {label: 'dialog.add_primitive.edge_size', type: 'number', value: 2, condition: ({shape}) => ['beveled_cuboid'].includes(shape)},
 		},
 		onConfirm(result) {
 			let original_selection_group = Group.selected && Group.selected.uuid;
@@ -1044,8 +1306,8 @@ BARS.defineActions(function() {
 				});
 				let group = getCurrentGroup();
 				if (group) {
-					mesh.addTo(group)
-					mesh.color = group.color;
+					mesh.addTo(group);
+					if (settings.inherit_parent_color.value) mesh.color = group.color;
 				}
 				let diameter_factor = result.align_edges ? 1 / Math.cos(Math.PI/result.sides) : 1;
 				let off_ang = result.align_edges ? 0.5 : 0;
@@ -1241,7 +1503,7 @@ BARS.defineActions(function() {
 						new MeshFace( mesh, {vertices: [vertex_keys[1], vertex_keys[3], vertex_keys[5], vertex_keys[7]]} ), // North
 					);
 				}
-				if (result.shape == 'rounded_cuboid') {
+				if (result.shape == 'beveled_cuboid') {
 					let s = result.edge_size;
 					let rs = result.diameter/2 - s;
 					let r = result.diameter/2;
@@ -1373,11 +1635,11 @@ BARS.defineActions(function() {
 
 			Undo.amendEdit({
 				diameter: {label: 'dialog.add_primitive.diameter', type: 'number', value: result.diameter, interval_type: 'position'},
-				height: {label: 'dialog.add_primitive.height', type: 'number', value: result.height, condition: ['cylinder', 'cone', 'cuboid', 'rounded_cuboid', 'pyramid', 'tube'].includes(result.shape), interval_type: 'position'},
+				height: {label: 'dialog.add_primitive.height', type: 'number', value: result.height, condition: ['cylinder', 'cone', 'cuboid', 'beveled_cuboid', 'pyramid', 'tube'].includes(result.shape), interval_type: 'position'},
 				sides: {label: 'dialog.add_primitive.sides', type: 'number', value: result.sides, min: 3, max: 48, condition: ['cylinder', 'cone', 'circle', 'torus', 'sphere', 'tube'].includes(result.shape)},
 				minor_diameter: {label: 'dialog.add_primitive.minor_diameter', type: 'number', value: result.minor_diameter, condition: ['torus', 'tube'].includes(result.shape), interval_type: 'position'},
 				minor_sides: {label: 'dialog.add_primitive.minor_sides', type: 'number', value: result.minor_sides, min: 2, max: 32, condition: ['torus'].includes(result.shape)},
-				edge_size: {label: 'dialog.add_primitive.edge_size', type: 'number', value: result.edge_size, condition: ['rounded_cuboid'].includes(result.shape)},
+				edge_size: {label: 'dialog.add_primitive.edge_size', type: 'number', value: result.edge_size, condition: ['beveled_cuboid'].includes(result.shape)},
 			}, form => {
 				Object.assign(result, form);
 				runEdit(true, result);
@@ -1403,7 +1665,7 @@ BARS.defineActions(function() {
 			vertex: {name: true, icon: 'fiber_manual_record'},
 		},
 		icon_mode: true,
-		condition: () => Modes.edit && Mesh.hasAny(),
+		condition: () => Modes.edit && Mesh.hasAny() && Toolbox.selected.id != 'knife_tool',
 		onChange({value}) {
 			if (value === previous_selection_mode) return;
 			if (value === 'object') {
@@ -1533,10 +1795,16 @@ BARS.defineActions(function() {
 			vertices: true,
 		},
 		modes: ['edit'],
-		condition: () => Modes.edit && Mesh.hasAny(),
+		condition: () => Modes.edit,
 		onCanvasMouseMove(data) {
-			if (!KnifeToolContext.current && Mesh.selected[0] && Mesh.selected.length == 1) {
-				KnifeToolContext.current = new KnifeToolContext(Mesh.selected[0]);
+			if (Mesh.selected[0]) {
+				if (!KnifeToolContext.current && Mesh.selected.length == 1) {
+					KnifeToolContext.current = new KnifeToolContext(Mesh.selected[0]);
+				}
+			} else if (Cube.all[0]) {
+				if (!KnifeToolContext.current) {
+					KnifeToolContext.current = new KnifeToolCubeContext();
+				}
 			}
 			if (KnifeToolContext.current) {
 				KnifeToolContext.current.hover(data);
@@ -1544,15 +1812,30 @@ BARS.defineActions(function() {
 		},
 		onCanvasClick(data) {
 			if (!data) return;
-			if (!KnifeToolContext.current && data.element instanceof Mesh) {
-				KnifeToolContext.current = new KnifeToolContext(data.element);
+			if (!KnifeToolContext.current) {
+				if (data.element instanceof Mesh) {
+					if (!KnifeToolContext.current && Mesh.selected.length == 1) {
+						KnifeToolContext.current = new KnifeToolContext(data.element);
+					}
+					if (KnifeToolContext.current) {
+						KnifeToolContext.current.hover(data);
+					}
+				} else if (data.element instanceof Cube) {
+					if (!KnifeToolContext.current) {
+						KnifeToolContext.current = new KnifeToolCubeContext(data.element);
+					}
+				}
 			}
 			let context = KnifeToolContext.current;
 			context.addPoint(data);
 		},
 		onSelect() {
+			Interface.addSuggestedModifierKey('shift', 'modifier_actions.snap_to_center');
+			Interface.addSuggestedModifierKey('ctrl', 'modifier_actions.snap_to_pixels');
 		},
 		onUnselect() {
+			Interface.removeSuggestedModifierKey('shift', 'modifier_actions.snap_to_center');
+			Interface.removeSuggestedModifierKey('ctrl', 'modifier_actions.snap_to_pixels');
 			if (KnifeToolContext.current) {
 				KnifeToolContext.current.apply();
 			}
@@ -2966,6 +3249,7 @@ BARS.defineActions(function() {
 					result++;
 				}
 			}
+			cleanupOverlappingMeshFaces(mesh);
 		})
 		Undo.finishEdit('Merge vertices')
 		Canvas.updateView({elements: Mesh.selected, element_aspects: {geometry: true, uv: true, faces: true}, selection: true})
