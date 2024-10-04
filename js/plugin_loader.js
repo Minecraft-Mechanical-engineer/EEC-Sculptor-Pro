@@ -925,27 +925,7 @@ BARS.defineActions(function() {
 				isMobile: Blockbench.isMobile,
 			},
 			computed: {
-				plugin_search() {
-					let search_name = this.search_term.toUpperCase();
-					if (search_name) {
-						let filtered = this.items.filter(item => {
-							return (
-								item.id.toUpperCase().includes(search_name) ||
-								item.title.toUpperCase().includes(search_name) ||
-								item.description.toUpperCase().includes(search_name) ||
-								item.author.toUpperCase().includes(search_name) ||
-								item.tags.find(tag => tag.toUpperCase().includes(search_name))
-							)
-						});
-						let installed = filtered.filter(p => p.installed);
-						let not_installed = filtered.filter(p => !p.installed);
-						return installed.concat(not_installed);
-					} else {
-						return this.items.filter(item => {
-							return (this.tab == 'installed') == item.installed;
-						})
-					}
-				},
+				plugin_search()
 				suggested_rows() {
 					let tags = ["Animation"];
 					this.items.forEach(plugin => {

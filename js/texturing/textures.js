@@ -2150,6 +2150,7 @@ function loadTextureDraggable() {
 function unselectTextures() {
 	Texture.all.forEach(function(s) {
 		s.selected = false;
+		s.multi_selected = false;
 	})
 	Texture.selected = undefined;
 	Canvas.updateLayeredTextures();

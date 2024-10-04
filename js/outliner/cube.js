@@ -99,6 +99,7 @@ class CubeFace extends Face {
 		return vector;
 	}
 }
+CubeFace.prototype.is_rectangular = true;
 new Property(CubeFace, 'number', 'rotation', {default: 0});
 new Property(CubeFace, 'number', 'tint', {default: -1});
 new Property(CubeFace, 'enum', 'cullface', {values: ['', 'north', 'south', 'west', 'east', 'up', 'down']});
@@ -855,7 +856,6 @@ class Cube extends OutlinerElement {
 		return in_box;
 	}
 	resize(val, axis, negative, allow_negative, bidirectional) {
-		let before = this.oldScale != undefined ? this.oldScale : this.size(axis);
 		if (before instanceof Array) before = before[axis];
 		let is_inverted = before < 0;
 		if (is_inverted) negative = !negative;

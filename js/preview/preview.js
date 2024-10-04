@@ -760,7 +760,7 @@ class Preview {
 			Transformer.dispatchPointerHover(event);
 		}
 		if (Transformer.hoverAxis !== null) return;
-		let is_canvas_click = Keybinds.extra.preview_select.keybind.isTriggered(event) || event.which === 0 || (Modes.paint && Keybinds.extra.paint_secondary_color.keybind.isTriggered(event));
+		let is_canvas_click = Keybinds.extra.preview_select.keybind.key == event.which || event.which === 0 || (Modes.paint && Keybinds.extra.paint_secondary_color.keybind.isTriggered(event));
 
 		var data = is_canvas_click && this.raycast(event);
 		if (data) {
@@ -769,6 +769,10 @@ class Preview {
 			let multi_select = Keybinds.extra.preview_select.keybind.additionalModifierTriggered(event, 'multi_select');
 			let group_select = Keybinds.extra.preview_select.keybind.additionalModifierTriggered(event, 'group_select');
 			let loop_select = Keybinds.extra.preview_select.keybind.additionalModifierTriggered(event, 'loop_select');
+
+			if (Toolbox.selected.paintTool) {
+				multi_select = group_select = loop_select = false;
+			}
 
 			function unselectOtherNodes() {
 				if (Group.selected) Group.selected.unselect();
@@ -795,7 +799,7 @@ class Preview {
 				if (Modes.paint && !(Toolbox.selected.id == 'fill_tool' && BarItems.fill_mode.value == 'selected_elements')) {
 					event = 0;
 				}
-				if (data.element.parent.type === 'group' && (!data.element instanceof Mesh || select_mode == 'object') && (
+				if (data.element.parent instanceof OutlinerNode && (!data.element instanceof Mesh || select_mode == 'object') && (
 					(Animator.open && !data.element.constructor.animator) ||
 					group_select ||
 					(!Format.rotate_cubes && Format.bone_rig && ['rotate_tool', 'pivot_tool'].includes(Toolbox.selected.id))
@@ -1859,6 +1863,7 @@ class OrbitGizmo {
 					let limit = move_calls <= 2 ? 1 : 32;
 					scope.preview.controls.rotateLeft((e1.touches ? (e2.clientX - last_event.clientX) : Math.clamp(e2.movementX, -limit, limit)) / 40);
 					scope.preview.controls.rotateUp((e1.touches ? (e2.clientY - last_event.clientY) : Math.clamp(e2.movementY, -limit, limit)) / 40);
+					Blockbench.dispatchEvent('update_camera_position', {preview: scope.preview})
 					last_event = e2;
 					move_calls++;
 				}
