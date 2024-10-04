@@ -2030,13 +2030,39 @@ span.controller_state_section_info {
 	.UVEditor > .toolbar {
 		margin-top: 3px;
 	}
-	#uv_resolution_status {
-		margin: 2px;
-		padding: 0px 5px;
 		pointer-events: auto;
+		cursor: pointer;
 	}
 	#uv_resolution_status:hover {
 		color: var(--color-light);
+	}
+	#project_resolution_status > div {
+		display: inline-block;
+		color: var(--color-subtle_text);
+		cursor: inherit;
+	}
+	#project_resolution_status:hover > div {
+		color: var(--color-text);
+	}
+	#uv_editor_texture_selector {
+		cursor: pointer;
+		padding: 2px 6px;
+		overflow: hidden;
+		white-space: nowrap;
+		flex-shrink: 1;
+		margin-right: auto;
+	}
+	#uv_editor_texture_selector:hover {
+		color: var(--color-light);
+	}
+	#uv_editor_texture_selector img {
+		height: 26px;
+		margin: 1px;
+		vertical-align: middle;
+		background-color: var(--color-back);
+	}
+	#uv_editor_texture_selector label {
+		cursor: inherit;
 	}
 
 	#uv_viewport {
