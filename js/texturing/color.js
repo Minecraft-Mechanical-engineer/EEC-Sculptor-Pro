@@ -1,3 +1,5 @@
+let ColorPanel;
+
 function colorDistance(color1, color2) {
 	return Math.sqrt(
 		Math.pow(color2._r - color1._r, 2) +
@@ -6,67 +8,63 @@ function colorDistance(color1, color2) {
 	);
 }
 (function() {
-	var palettes = {
-		default: [
-			'#1a1a1b','#353637','#464849','#5d5f60','#757677','#868788','#979b9d','#b8bdbe','#dadedf','#ffffff',
-			'#9a080f','#b40a1a','#d21129','#ef2142','#ff5774','#bb7907','#cc9104','#edb508','#fcd720','#fef364',
-			'#0d7e36','#12933d','#11aa38','#1cc93d','#29e64d','#044b8f','#0955a8','#126bc3','#1782db','#339afc',
-			'#cd3e00','#e65b00','#f37800','#f89520','#fdaf40','#02a8c1','#0cc3ca','#17d1c7','#38debd','#5be9b7',
-		],
-		material: [
-			'#ffebee','#ffcdd2','#ef9a9a','#e57373','#ef5350','#f44336','#e53935','#d32f2f','#c62828','#b71c1c','#ff5252','#ff1744',
-			'#fce4ec','#f8bbd0','#f48fb1','#f06292','#ec407a','#e91e63','#d81b60','#c2185b','#ad1457','#880e4f','#ff4081','#f50057',
-			'#f3e5f5','#e1bee7','#ce93d8','#ba68c8','#ab47bc','#9c27b0','#8e24aa','#7b1fa2','#6a1b9a','#4a148c','#e040fb','#d500f9',
-			'#ede7f6','#d1c4e9','#b39ddb','#9575cd','#7e57c2','#673ab7','#5e35b1','#512da8','#4527a0','#311b92','#7c4dff','#651fff',
-			'#e8eaf6','#c5cae9','#9fa8da','#7986cb','#5c6bc0','#3f51b5','#3949ab','#303f9f','#283593','#1a237e','#536dfe','#3d5afe',
-			'#e3f2fd','#bbdefb','#90caf9','#64b5f6','#42a5f5','#2196f3','#1e88e5','#1976d2','#1565c0','#0d47a1','#448aff','#2979ff',
-			'#e1f5fe','#b3e5fc','#81d4fa','#4fc3f7','#29b6f6','#03a9f4','#039be5','#0288d1','#0277bd','#01579b','#40c4ff','#00b0ff',
-			'#e0f7fa','#b2ebf2','#80deea','#4dd0e1','#26c6da','#00bcd4','#00acc1','#0097a7','#00838f','#006064','#18ffff','#00e5ff',
-			'#e0f2f1','#b2dfdb','#80cbc4','#4db6ac','#26a69a','#009688','#00897b','#00796b','#00695c','#004d40','#64ffda','#1de9b6',
-			'#e8f5e9','#c8e6c9','#a5d6a7','#81c784','#66bb6a','#4caf50','#43a047','#388e3c','#2e7d32','#1b5e20','#69f0ae','#00e676',
-			'#f1f8e9','#dcedc8','#c5e1a5','#aed581','#9ccc65','#8bc34a','#7cb342','#689f38','#558b2f','#33691e','#b2ff59','#76ff03',
-			'#f9fbe7','#f0f4c3','#e6ee9c','#dce775','#d4e157','#cddc39','#c0ca33','#afb42b','#9e9d24','#827717','#eeff41','#c6ff00',
-			'#fffde7','#fff9c4','#fff59d','#fff176','#ffee58','#ffeb3b','#fdd835','#fbc02d','#f9a825','#f57f17','#ffff00','#ffea00',
-			'#fff8e1','#ffecb3','#ffe082','#ffd54f','#ffca28','#ffc107','#ffb300','#ffa000','#ff8f00','#ff6f00','#ffd740','#ffc400',
-			'#fff3e0','#ffe0b2','#ffcc80','#ffb74d','#ffa726','#ff9800','#fb8c00','#f57c00','#ef6c00','#e65100','#ffab40','#ff9100',
-			'#fbe9e7','#ffccbc','#ffab91','#ff8a65','#ff7043','#ff5722','#f4511e','#e64a19','#d84315','#bf360c','#ff6e40','#ff3d00',
-			'#efebe9','#d7ccc8','#bcaaa4','#a1887f','#8d6e63','#795548','#6d4c41','#5d4037','#4e342e','#3e2723','#6d422d','#593022',
-			'#fafafa','#f5f5f5','#eeeeee','#e0e0e0','#bdbdbd','#9e9e9e','#757575','#616161','#424242','#212121','#ffffff','#000000',
-			'#eceff1','#cfd8dc','#b0bec5','#90a4ae','#78909c','#607d8b','#546e7a','#455a64','#37474f','#263238',
-		],
-		endesga64: [
-			'#ff0040','#131313','#1b1b1b','#272727','#3d3d3d','#5d5d5d','#858585','#b4b4b4','#ffffff','#c7cfdd',
-			'#92a1b9','#657392','#424c6e','#2a2f4e','#1a1932','#0e071b','#1c121c','#391f21','#5d2c28','#8a4836',
-			'#bf6f4a','#e69c69','#f6ca9f','#f9e6cf','#edab50','#e07438','#c64524','#8e251d','#ff5000','#ed7614',
-			'#ffa214','#ffc825','#ffeb57','#d3fc7e','#99e65f','#5ac54f','#33984b','#1e6f50','#134c4c','#0c2e44',
-			'#00396d','#0069aa','#0098dc','#00cdf9','#0cf1ff','#94fdff','#fdd2ed','#f389f5','#db3ffd','#7a09fa',
-			'#3003d9','#0c0293','#03193f','#3b1443','#622461','#93388f','#ca52c9','#c85086','#f68187','#f5555d',
-			'#ea323c','#c42430','#891e2b','#571c27',
-		]
-	}
-Interface.definePanels(() => {
+//
+StateMemory.init('color_palettes', 'array')
 
-	StateMemory.init('color_picker_tab', 'string')
-	ColorPanel = Interface.Panels.color = new Panel({
-		id: 'color',
-		icon: 'palette',
-		condition: () => Modes.id === 'paint',
-		toolbars: {
-			picker: Toolbars.color_picker,
-			palette: Toolbars.palette
-		},
-		onResize() {
-			$('#main_colorpicker').spectrum('reflow');
-			Interface.Panels.color.vue.width = 0;
-			Vue.nextTick(() => {
-				Interface.Panels.color.vue.width = this.width
-			})
-		},
-		menu: new Menu([
-			'sort_palette',
-			'load_palette'
-		])
-	})
+var palettes = {
+	default: [
+		'#1a1a1b','#353637','#464849','#5d5f60','#757677','#868788','#979b9d','#b8bdbe','#dadedf','#ffffff',
+		'#9a080f','#b40a1a','#d21129','#ef2142','#ff5774','#bb7907','#cc9104','#edb508','#fcd720','#fef364',
+		'#0d7e36','#12933d','#11aa38','#1cc93d','#29e64d','#044b8f','#0955a8','#126bc3','#1782db','#339afc',
+		'#cd3e00','#e65b00','#f37800','#f89520','#fdaf40','#02a8c1','#0cc3ca','#17d1c7','#38debd','#5be9b7',
+	],
+	material: [
+		'#ffebee','#ffcdd2','#ef9a9a','#e57373','#ef5350','#f44336','#e53935','#d32f2f','#c62828','#b71c1c','#ff5252','#ff1744',
+		'#fce4ec','#f8bbd0','#f48fb1','#f06292','#ec407a','#e91e63','#d81b60','#c2185b','#ad1457','#880e4f','#ff4081','#f50057',
+		'#f3e5f5','#e1bee7','#ce93d8','#ba68c8','#ab47bc','#9c27b0','#8e24aa','#7b1fa2','#6a1b9a','#4a148c','#e040fb','#d500f9',
+		'#ede7f6','#d1c4e9','#b39ddb','#9575cd','#7e57c2','#673ab7','#5e35b1','#512da8','#4527a0','#311b92','#7c4dff','#651fff',
+		'#e8eaf6','#c5cae9','#9fa8da','#7986cb','#5c6bc0','#3f51b5','#3949ab','#303f9f','#283593','#1a237e','#536dfe','#3d5afe',
+		'#e3f2fd','#bbdefb','#90caf9','#64b5f6','#42a5f5','#2196f3','#1e88e5','#1976d2','#1565c0','#0d47a1','#448aff','#2979ff',
+		'#e1f5fe','#b3e5fc','#81d4fa','#4fc3f7','#29b6f6','#03a9f4','#039be5','#0288d1','#0277bd','#01579b','#40c4ff','#00b0ff',
+		'#e0f7fa','#b2ebf2','#80deea','#4dd0e1','#26c6da','#00bcd4','#00acc1','#0097a7','#00838f','#006064','#18ffff','#00e5ff',
+		'#e0f2f1','#b2dfdb','#80cbc4','#4db6ac','#26a69a','#009688','#00897b','#00796b','#00695c','#004d40','#64ffda','#1de9b6',
+		'#e8f5e9','#c8e6c9','#a5d6a7','#81c784','#66bb6a','#4caf50','#43a047','#388e3c','#2e7d32','#1b5e20','#69f0ae','#00e676',
+		'#f1f8e9','#dcedc8','#c5e1a5','#aed581','#9ccc65','#8bc34a','#7cb342','#689f38','#558b2f','#33691e','#b2ff59','#76ff03',
+		'#f9fbe7','#f0f4c3','#e6ee9c','#dce775','#d4e157','#cddc39','#c0ca33','#afb42b','#9e9d24','#827717','#eeff41','#c6ff00',
+		'#fffde7','#fff9c4','#fff59d','#fff176','#ffee58','#ffeb3b','#fdd835','#fbc02d','#f9a825','#f57f17','#ffff00','#ffea00',
+		'#fff8e1','#ffecb3','#ffe082','#ffd54f','#ffca28','#ffc107','#ffb300','#ffa000','#ff8f00','#ff6f00','#ffd740','#ffc400',
+		'#fff3e0','#ffe0b2','#ffcc80','#ffb74d','#ffa726','#ff9800','#fb8c00','#f57c00','#ef6c00','#e65100','#ffab40','#ff9100',
+		'#fbe9e7','#ffccbc','#ffab91','#ff8a65','#ff7043','#ff5722','#f4511e','#e64a19','#d84315','#bf360c','#ff6e40','#ff3d00',
+		'#efebe9','#d7ccc8','#bcaaa4','#a1887f','#8d6e63','#795548','#6d4c41','#5d4037','#4e342e','#3e2723','#6d422d','#593022',
+		'#fafafa','#f5f5f5','#eeeeee','#e0e0e0','#bdbdbd','#9e9e9e','#757575','#616161','#424242','#212121','#ffffff','#000000',
+		'#eceff1','#cfd8dc','#b0bec5','#90a4ae','#78909c','#607d8b','#546e7a','#455a64','#37474f','#263238',
+	],
+	endesga64: [
+		'#ff0040','#131313','#1b1b1b','#272727','#3d3d3d','#5d5d5d','#858585','#b4b4b4','#ffffff','#c7cfdd',
+		'#92a1b9','#657392','#424c6e','#2a2f4e','#1a1932','#0e071b','#1c121c','#391f21','#5d2c28','#8a4836',
+		'#bf6f4a','#e69c69','#f6ca9f','#f9e6cf','#edab50','#e07438','#c64524','#8e251d','#ff5000','#ed7614',
+		'#ffa214','#ffc825','#ffeb57','#d3fc7e','#99e65f','#5ac54f','#33984b','#1e6f50','#134c4c','#0c2e44',
+		'#00396d','#0069aa','#0098dc','#00cdf9','#0cf1ff','#94fdff','#fdd2ed','#f389f5','#db3ffd','#7a09fa',
+		'#3003d9','#0c0293','#03193f','#3b1443','#622461','#93388f','#ca52c9','#c85086','#f68187','#f5555d',
+		'#ea323c','#c42430','#891e2b','#571c27',
+	]
+}
+
+
+SharedActions.add('delete', {
+	condition: () => Prop.active_panel == 'color' && ['palette', 'both'].includes(ColorPanel.vue.open_tab),
+	run() {
+		if (StateMemory.color_palette_locked) {
+			Blockbench.showQuickMessage('message.palette_locked');
+			return;
+		}
+		if (ColorPanel.vue.palette.includes(ColorPanel.vue.selected_color)) {
+			ColorPanel.vue.palette.remove(ColorPanel.vue.selected_color)
+		}
+	}
+})
+
+Interface.definePanels(() => {
 	var saved_colors = localStorage.getItem('colors');
 	if (saved_colors) {
 		try {
@@ -75,6 +73,336 @@ Interface.definePanels(() => {
 			saved_colors = null;
 		}
 	}
+	StateMemory.init('color_picker_tab', 'string')
+	StateMemory.init('color_picker_rgb', 'boolean')
+	StateMemory.init('color_palette_locked', 'boolean')
+
+	ColorPanel = new Panel('color', {
+		icon: 'palette',
+		condition: {modes: ['paint']},
+		default_position: {
+			slot: 'right_bar',
+			float_position: [0, 0],
+			float_size: [300, 400],
+			height: 400
+		},
+		toolbars: [
+			new Toolbar('color_picker', {
+				children: [
+					'slider_color_h',
+					'slider_color_s',
+					'slider_color_v',
+					'slider_color_red',
+					'slider_color_green',
+					'slider_color_blue',
+					'add_to_palette',
+					'pick_screen_color'
+				]
+			}),
+			new Toolbar('palette', {
+				children: [
+					'import_palette',
+					'export_palette',
+					'generate_palette',
+					'sort_palette',
+					'save_palette',
+					'load_palette',
+				]
+			})
+		],
+		onResize() {
+			Panels.color.vue.width = 0;
+			Vue.nextTick(() => {
+				let disp_before = this.vue.$refs.square_picker.style.display;
+				this.vue.$refs.square_picker.style.display = 'none';
+				Panels.color.vue.width = Math.clamp(this.width, 100, 1000);
+				if (!this.isInSidebar()) {
+					if (this.vue.picker_type == 'box') {
+						let height = this.height - this.vue.$el.clientHeight - this.handle.clientHeight - 6;
+						Panels.color.vue.picker_height = Math.clamp(height, 100, 1000);
+					} else {
+						let max = Math.min(1000, (this.height - this.vue.$el.clientHeight - this.handle.clientHeight) * (this.vue.picker_type == 'box' ? 1.25 : 1));
+						Interface.Panels.color.vue.width = Math.clamp(this.width, 100, max);
+					}
+				}
+				this.vue.$refs.square_picker.style.display = disp_before;
+				Vue.nextTick(() => {
+					$('#main_colorpicker').spectrum('reflow');
+				})
+			})
+		},
+		component: {
+			data: {
+				width: 100,
+				picker_height: 100,
+				open_tab: StateMemory.color_picker_tab || 'picker',
+				picker_type: Settings.get('color_wheel') ? 'wheel' : 'box',
+				main_color: '#ffffff',
+				second_color: '#000000',
+				hover_color: '',
+				second_color_selected: false,
+				get color_code() {return this.hover_color || (this.second_color_selected ? this.second_color : this.main_color)},
+				set color_code(color) {
+					if (this.second_color_selected == false) {
+						this.main_color = color.toLowerCase().replace(/[^a-f0-9#]/g, '');
+					} else {
+						this.second_color = color.toLowerCase().replace(/[^a-f0-9#]/g, '');
+					}
+				},
+				text_input: '#ffffff',
+				hsv: {
+					h: 0,
+					s: 0,
+					v: 0,
+				},
+				palette: (saved_colors && saved_colors.palette instanceof Array) ? saved_colors.palette : palettes.default.slice(),
+				history: (saved_colors && saved_colors.history instanceof Array) ? saved_colors.history : []
+			},
+			methods: {
+				colorPickerMenu(event) {
+					new Menu('color_picker_menu', [
+						{
+							id: 'picker_type',
+							name: 'menu.color_picker.picker_type',
+							icon: 'palette',
+							children: [
+								{name: 'menu.color_picker.picker_type.square', icon: Settings.get('color_wheel') ? 'far.fa-circle' : 'far.fa-dot-circle', click: () => {
+									settings.color_wheel.set(false);
+									Panels.color.onResize();
+								}},
+								{name: 'menu.color_picker.picker_type.wheel', icon: Settings.get('color_wheel') ? 'far.fa-dot-circle' : 'far.fa-circle', click: () => {
+									settings.color_wheel.set(true);
+									Panels.color.onResize();
+								}}
+							]
+						},
+						{
+							id: 'slider_mode',
+							name: 'menu.color_picker.slider_mode',
+							icon: 'tune',
+							children: [
+								{name: 'menu.color_picker.slider_mode.hsv', icon: StateMemory.color_picker_rgb ? 'far.fa-circle' : 'far.fa-dot-circle', click: () => {
+									StateMemory.set('color_picker_rgb', false);
+									BARS.updateConditions();
+									this.updateSliders();
+								}},
+								{name: 'menu.color_picker.slider_mode.rgb', icon: StateMemory.color_picker_rgb ? 'far.fa-dot-circle' : 'far.fa-circle', click: () => {
+									StateMemory.set('color_picker_rgb', true);
+									BARS.updateConditions();
+									this.updateSliders();
+								}}
+							]
+						},
+						{
+							id: 'lock_palette',
+							name: 'menu.palette.lock_palette',
+							icon: () => StateMemory.color_palette_locked,
+							click() {
+								StateMemory.color_palette_locked = !StateMemory.color_palette_locked;
+								StateMemory.save('color_palette_locked');
+							}
+						}
+						// slider
+					]).open(event.target);
+				},
+				updateSliders() {
+					if (StateMemory.color_picker_rgb) {
+						BarItems.slider_color_red.update();
+						BarItems.slider_color_green.update();
+						BarItems.slider_color_blue.update();
+					} else {
+						BarItems.slider_color_h.update();
+						BarItems.slider_color_s.update();
+						BarItems.slider_color_v.update();
+					}
+					BarItems.slider_palette_color.update();
+				},
+				onMouseWheel(event) {
+					if (!event.target) return;
+					if (settings.color_wheel.value || event.target.classList.contains('sp-hue') || event.target.classList.contains('sp-slider')) {
+						let sign = Math.sign(event.deltaY);
+						if (event.shiftKey) sign *= 4;
+						BarItems.slider_color_h.change(v => v+sign);
+					}
+				},
+				sortChoose() {
+					if (StateMemory.color_palette_locked) {
+						Blockbench.showQuickMessage('message.palette_locked');
+					}
+				},
+				sortMove() {
+					if (StateMemory.color_palette_locked) {
+						return false;
+					}
+				},
+				sort(event) {
+					var item = this.palette.splice(event.oldIndex, 1)[0];
+					this.palette.splice(event.newIndex, 0, item);
+				},
+				drop(event) {
+				},
+				setColor(color, second_color = this.second_color_selected) {
+					ColorPanel.set(color, second_color);
+				},
+				changeColor(color, secondary = this.second_color_selected) {
+					this[secondary ? 'second_color' : 'main_color'] = color;
+				},
+				swapColors() {
+					BarItems.swap_colors.click();
+				},
+				getSwapColorsTooltip() {
+					return `${BarItems.swap_colors.name} (${BarItems.swap_colors.keybind})`
+				},
+				selectMainOrSecondary(secondary) {
+					if (this.second_color_selected != secondary) {
+						this.second_color_selected = !!secondary;
+						Object.assign(this.hsv, ColorPanel.hexToHsv(this.selected_color));
+						this.updateSliders();
+						$('#main_colorpicker').spectrum('set', this.selected_color);
+						this.text_input = this.selected_color;
+					}
+				},
+				validateMainColor() {
+					var color = this.main_color;
+					if (!color.match(/^#[0-9a-f]{6}$/)) {
+						this.main_color = tinycolor(color).toHexString();
+					}
+				},
+				isDarkColor(hex) {
+					if (hex) {
+						let color_val = new tinycolor(hex).getBrightness();
+						let bg_val = new tinycolor(CustomTheme.data.colors.back).getBrightness();
+						return Math.abs(color_val - bg_val) <= 50;
+					}
+				},
+				tl
+			},
+			computed: {
+				selected_color() {
+					return this.second_color_selected ? this.second_color : this.main_color;
+				}
+			},
+			watch: {
+				main_color: function(value) {
+					this.hover_color = '';
+					if (!this.second_color_selected) {
+						Object.assign(this.hsv, ColorPanel.hexToHsv(value));
+						this.updateSliders()
+						$('#main_colorpicker').spectrum('set', value);
+						this.text_input = value;
+					}
+					Blockbench.dispatchEvent('change_color', {color: value})
+				},
+				second_color: function(value) {
+					this.hover_color = '';
+					if (this.second_color_selected) {
+						Object.assign(this.hsv, ColorPanel.hexToHsv(value));
+						this.updateSliders()
+						$('#main_colorpicker').spectrum('set', value);
+						this.text_input = value;
+					}
+					Blockbench.dispatchEvent('change_color', {color: value, secondary: true})
+				},
+				open_tab(tab) {
+					StateMemory.color_picker_tab = tab;
+					StateMemory.save('color_picker_tab');
+					Vue.nextTick(() => {
+						ColorPanel.onResize()
+					})
+				}
+			},
+			template: `
+				<div id="color_panel_wrapper" class="panel_inside">
+					<div id="color_panel_head">
+						<div class="chosen">
+							<div class="secondary" :class="{selected: second_color_selected}" :style="{'background-color': (second_color_selected && hover_color) || second_color}" @click="selectMainOrSecondary(true)"></div>
+							<div class="main" :class="{selected: !second_color_selected}" :style="{'background-color': (!second_color_selected && hover_color) || main_color}" @click="selectMainOrSecondary(false)"></div>
+							<div class="tool switcher" @click="swapColors()" :title="getSwapColorsTooltip()">
+								<i class="material-icons icon">swap_vert</i>
+							</div>
+						</div>
+						<div class="side">
+							<input type="text" v-model="color_code" @focusout="validateMainColor()">
+							<div id="color_history">
+								<li
+									v-for="(color, i) in history" v-if="i || color != main_color"
+									:key="color"
+									:style="{'background-color': color}"
+									:title="color"
+									@click="setColor(color)" @contextmenu="setColor(color, true)"
+								></li>
+							</div>
+						</div>
+					</div>
+
+					<div class="bar tabs_small">
+
+						<input type="radio" name="tab" id="radio_color_picker" value="picker" v-model="open_tab">
+						<label for="radio_color_picker">${tl('panel.color.picker')}</label>
+
+						<input type="radio" name="tab" id="radio_color_palette" value="palette" v-model="open_tab">
+						<label for="radio_color_palette">${tl('panel.color.palette')}</label>
+
+						<input type="radio" name="tab" id="radio_color_both" value="both" v-model="open_tab">
+						<label for="radio_color_both">${tl('panel.color.both')}</label>
+
+						<div class="tool" @click="colorPickerMenu($event)" title="${tl('panel.color.picker_options')}">
+							<i class="icon material-icons">settings</i>
+						</div>
+
+					</div>
+					<div v-show="open_tab == 'picker' || open_tab == 'both'" @wheel="onMouseWheel($event)">
+						<div v-show="picker_type == 'box'" ref="square_picker" :style="{maxWidth: width + 'px', '--height': picker_height + 'px'}">
+							<input id="main_colorpicker">
+						</div>
+						<color-wheel v-if="picker_type == 'wheel' && width" :value="selected_color" @input="changeColor" :width="width" :height="width"></color-wheel>
+						<div class="toolbar_wrapper color_picker" toolbar="color_picker"></div>
+					</div>
+					<div v-show="open_tab == 'palette' || open_tab == 'both'">
+						<div class="toolbar_wrapper palette" toolbar="palette"></div>
+						<ul id="palette_list" class="list mobile_scrollbar" v-sortable="{onChoose: sortChoose, onMove: sortMove, onUpdate: sort, onEnd: drop, fallbackTolerance: 10}" @contextmenu="ColorPanel.menu.open($event)">
+							<li
+								class="color" v-for="color in palette"
+								:title="color" :key="color"
+								:class="{selected: color == main_color, secondary: color == second_color, contrast: isDarkColor(color)}"
+								@click="setColor(color)"
+								@contextmenu.stop="setColor(color, true)"
+							>
+								<div class="color_inner" :style="{'background-color': color}"></div>
+							</li>
+						</ul>
+					</div>
+				</div>
+			`,
+			mounted() {
+				Panels.color.picker = $(this.$el).find('#main_colorpicker').spectrum({
+					preferredFormat: "hex",
+					color: 'ffffff',
+					flat: true,
+					localStorageKey: 'brush_color_palette',
+					move: (c) => {
+						ColorPanel.change(c, this.second_color_selected);
+					}
+				})
+			}
+		},
+		menu: new Menu([
+			new MenuSeparator('options'),
+			{
+				id: 'lock_palette',
+				name: 'menu.palette.lock_palette',
+				icon: () => StateMemory.color_palette_locked,
+				click() {
+					StateMemory.color_palette_locked = !StateMemory.color_palette_locked;
+					StateMemory.save('color_palette_locked');
+				}
+			},
+			new MenuSeparator('file'),
+			'sort_palette',
+			'save_palette',
+			'load_palette',
+		])
+	})
 	ColorPanel.updateFromHsv = function() {
 		ColorPanel.change({
 			h: ColorPanel.vue._data.hsv.h,
@@ -87,74 +415,6 @@ Interface.definePanels(() => {
 		var tc = color.toHsv();
 		return {h: tc.h, s: tc.s*100, v: tc.v*100};
 	}
-	Interface.Panels.color.vue = new Vue({
-		el: '#color_panel_wrapper',
-		data() {return {
-			width: Interface.Panels.color.width,
-			open_tab: StateMemory.color_picker_tab || 'picker',
-			picker_type: Settings.get('color_wheel') ? 'wheel' : 'box',
-			picker_toggle_label: tl('panel.color.picker_type'),
-			main_color: '#000000',
-			hover_color: '',
-			get color_code() {return this.hover_color || this.main_color},
-			set color_code(color) {
-				this.main_color = color.toLowerCase().replace(/[^a-f0-9#]/g, '');
-			},
-			text_input: '#000000',
-			hsv: {
-				h: 0,
-				s: 0,
-				v: 0,
-			},
-			palette: (saved_colors && saved_colors.palette instanceof Array) ? saved_colors.palette : palettes.default.slice(),
-			history: (saved_colors && saved_colors.history instanceof Array) ? saved_colors.history : []
-		}},
-		methods: {
-			togglePickerType() {
-				settings.color_wheel.set(!settings.color_wheel.value);
-			},
-			sort(event) {
-				var item = this.palette.splice(event.oldIndex, 1)[0];
-				this.palette.splice(event.newIndex, 0, item);
-			},
-			drop(event) {
-			},
-			setColor(color) {
-				ColorPanel.set(color);
-			},
-			validateMainColor() {
-				var color = this.main_color;
-				if (!color.match(/^#[0-9a-f]{6}$/)) {
-					this.main_color = tinycolor(color).toHexString();
-				}
-			},
-			isDarkColor(hex) {
-				if (hex) {
-					let color_val = new tinycolor(hex).getBrightness();
-					let bg_val = new tinycolor(CustomTheme.data.colors.back).getBrightness();
-					return Math.abs(color_val - bg_val) <= 50;
-				}
-			}
-		},
-		watch: {
-			main_color: function(value) {
-				this.hover_color = '';
-				Object.assign(this.hsv, ColorPanel.hexToHsv(value));
-				BarItems.slider_color_h.update();
-				BarItems.slider_color_s.update();
-				BarItems.slider_color_v.update();
-				$('#main_colorpicker').spectrum('set', value);
-				this.text_input = value;
-			},
-			open_tab(tab) {
-				StateMemory.color_picker_tab = tab;
-				StateMemory.save('color_picker_tab');
-				Vue.nextTick(() => {
-					$('#main_colorpicker').spectrum('reflow');
-				})
-			}
-		}
-	})
 
 
 	ColorPanel.palette = Interface.Panels.color.vue._data.palette;
@@ -169,44 +429,37 @@ Interface.definePanels(() => {
 			history.splice(0, 0, color);
 			if (history.length > max) history.length = max;
 			$('#color_history')[0].scrollLeft = 0;
+			ColorPanel.saveLocalStorages();
 		}
 	}
-	ColorPanel.change = function(color) {
+	ColorPanel.change = function(color, secondary) {
 		var value = new tinycolor(color)
-		ColorPanel.vue._data.main_color = value.toHexString();
+		ColorPanel.vue[secondary ? 'second_color' : 'main_color'] = value.toHexString();
 	}
-	ColorPanel.set = function(color, no_sync) {
-		ColorPanel.change(color)
-		ColorPanel.addToHistory(ColorPanel.vue._data.main_color)
-		if (!no_sync && isApp && settings.sync_color.value) {
-			ipcRenderer.send('change-main-color', ColorPanel.vue._data.main_color);
-		}
+	ColorPanel.set = function(color, secondary, no_sync) {
+		ColorPanel.change(color, secondary);
+		ColorPanel.addToHistory(ColorPanel.vue.main_color)
 	}
-	ColorPanel.get = function() {
-		ColorPanel.addToHistory(ColorPanel.vue._data.main_color);
-		return ColorPanel.vue._data.main_color;
+	ColorPanel.get = function(secondary) {
+		let color = secondary ? ColorPanel.vue.second_color : ColorPanel.vue.main_color;
+		ColorPanel.addToHistory(color);
+		return color;
 	}
-	Interface.Panels.color.picker = $('#main_colorpicker').spectrum({
-		preferredFormat: "hex",
-		color: 'ffffff',
-		flat: true,
-		localStorageKey: 'brush_color_palette',
-		move: function(c) {
-			ColorPanel.change(c)
-		}
-	})
+	ColorPanel.saveLocalStorages = function() {
+		localStorage.setItem('colors', JSON.stringify({
+			palette: ColorPanel.vue._data.palette,
+			history: ColorPanel.vue._data.history,
+		}))
+	}
 
-	$('#color_history').on('mousewheel', function(e) {
-		var current = this.scrollLeft;
+	$('#color_history').on('wheel', function(e) {
 		var delta = (e.originalEvent.deltaY < 0 ? -90 : 90);
 		this.scrollLeft += delta;
-
-		//$(this).animate({scrollLeft: current + delta}, 200)
 	})
 
 	if (isApp) {
 		ipcRenderer.on('set-main-color', (event, arg) => {
-			ColorPanel.set(arg, true);
+			ColorPanel.set(arg);
 		})
 	}	
 
@@ -419,14 +672,9 @@ Interface.definePanels(() => {
 				color = tinycolor('rgb'+color);
 				colors.safePush(color.toHexString());
 			})
-			var m_gpl = string.match(/\n\d{1,3} \d{1,3} \d{1,3}/g)
+			var m_gpl = string.match(/\n\s*\d{1,3}\s+\d{1,3}\s+\d{1,3}/g)
 			if (m_gpl) m_gpl.forEach(color => {
-				color = tinycolor(`rgb(${color.substr(1).replace(/ /g, ',')})`);
-				colors.safePush(color.toHexString());
-			})
-			var m_gpl = string.match(/\n\d{1,3} \d{1,3} \d{1,3}/g)
-			if (m_gpl) m_gpl.forEach(color => {
-				color = tinycolor(`rgb(${color.substr(1).replace(/ /g, ',')})`);
+				color = tinycolor(`rgb(${color.replace(/^[\n\s]*/, '').replace(/\s+/g, ',')})`);
 				colors.safePush(color.toHexString());
 			})
 		}
@@ -447,6 +695,7 @@ Interface.definePanels(() => {
 							ColorPanel.palette.safePush(color);
 						})
 					}
+					ColorPanel.saveLocalStorages();
 					dialog.hide();
 				}
 			});
@@ -455,15 +704,18 @@ Interface.definePanels(() => {
 			colors.forEach(color => {
 				ColorPanel.palette.push(color);
 			})
+			ColorPanel.saveLocalStorages();
 		}
 	}
 	ColorPanel.generatePalette = function(source, process_colors = true) {
 
 		var options = {};
+		let selected_texture;
 		if (!source) {
 			Texture.all.forEach((tex, i) => {
 				if (!tex.error) {
 					options[i] = tex.name;
+					if (tex.selected) selected_texture = i;
 				}
 			})
 		}
@@ -472,7 +724,8 @@ Interface.definePanels(() => {
 			title: 'action.import_palette',
 			width: 460,
 			form: {
-				texture: {label: 'data.texture', type: 'select', options, condition: !source},
+				texture: {label: 'data.texture', type: 'select', options, value: selected_texture, condition: !source},
+				selection_only: {label: 'message.import_palette.selection_only', type: 'checkbox', value: false, condition: Texture.all[selected_texture]?.selection?.is_custom},
 				replace: {label: 'message.import_palette.replace_palette', type: 'checkbox', value: true},
 				threshold: {label: 'message.import_palette.threshold', type: 'number', value: 10, min: 0, max: 100, condition: process_colors},
 			},
@@ -488,6 +741,7 @@ Interface.definePanels(() => {
 				}
 				Painter.scanCanvas(ctx, 0, 0, ctx.canvas.width, ctx.canvas.height, (x, y, px) => {
 					if (px[3] < 12) return;
+					if (formData.selection_only && texture.selection.is_custom && !texture.selection.get(x, y)) return;
 					var t = tinycolor({
 						r: px[0],
 						g: px[1],
@@ -557,6 +811,7 @@ Interface.definePanels(() => {
 						ColorPanel.palette.safePush(color);
 					})
 				}
+				ColorPanel.saveLocalStorages();
 				dialog.hide();
 			}
 		});
@@ -594,11 +849,26 @@ BARS.defineActions(function() {
 		icon: 'add',
 		category: 'color',
 		click: function () {
-			var color = ColorPanel.get();
-			if (!ColorPanel.palette.includes(color)) {
+			let color = ColorPanel.get();
+			if (StateMemory.color_palette_locked) {
+				Blockbench.showQuickMessage('message.palette_locked');
+
+			} else if (!ColorPanel.palette.includes(color)) {
 				ColorPanel.palette.push(color);
-				Blockbench.showQuickMessage('message.add_to_palette')
+				ColorPanel.saveLocalStorages();
+				Blockbench.showQuickMessage('message.add_to_palette');
 			}
+		}
+	})
+	new Action('swap_colors', {
+		icon: 'swap_vert',
+		category: 'color',
+		condition: {modes: ['paint']},
+		keybind: new Keybind({key: 'x'}),
+		click() {
+			let color = ColorPanel.vue.main_color;
+			ColorPanel.vue.main_color = ColorPanel.vue.second_color;
+			ColorPanel.vue.second_color = color;
 		}
 	})
 	new Action('import_palette', {
@@ -688,43 +958,106 @@ BARS.defineActions(function() {
 					ColorPanel.palette.push(color.toHexString());
 				})
 			}
+			ColorPanel.saveLocalStorages();
 		}
 	})
 
+	function loadPalette(arr) {
+		ColorPanel.palette.splice(0, Infinity, ...arr);
+		ColorPanel.saveLocalStorages();
+	}
 	new Action('load_palette', {
 		icon: 'fa-tasks',
 		category: 'color',
+		condition: {modes: ['paint']},
 		click: function (e) {
-			new Menu(this.children).open(e.target)
+			new Menu(this.children()).open(e.target)
 		},
-		children: [
-			{name: 'menu.palette.load.default', icon: 'bubble_chart', id: 'default', click: () => {
-				ColorPanel.palette.splice(0, Infinity, ...palettes.default);
-			}},
-			{name: 'Endesga 64', description: 'Pixel art palette created by lospec.com/endesga', icon: 'bubble_chart', id: 'endesga64', click: () => {
-				ColorPanel.palette.splice(0, Infinity, ...palettes.endesga64);
-			}},
-			{name: 'Material', icon: 'bubble_chart', id: 'material', click: () => {
-				ColorPanel.palette.splice(0, Infinity, ...palettes.material);
-			}},
-			'_',
-			{name: 'menu.palette.load.empty', icon: 'clear', id: 'empty', click: () => {
-				ColorPanel.palette.splice(0, Infinity);
-			}},
-		]
+		children() {
+			let options = this.default_palettes.slice();
+
+			StateMemory.color_palettes.forEach((palette, i) => {
+				let option = {
+					name: palette.name,
+					icon: 'bubble_chart',
+					id: i.toString(),
+					click() {
+						loadPalette(palette.colors);
+					},
+					children: [
+						{icon: 'update', name: 'menu.palette.load.update', description: 'menu.palette.load.update.desc', click() {
+							palette.colors.replace(ColorPanel.palette);
+							StateMemory.save('color_palettes');
+						}},
+						{icon: 'delete', name: 'generic.delete', click() {
+							StateMemory.color_palettes.remove(palette);
+							StateMemory.save('color_palettes');
+						}}
+					]
+				}
+				options.push(option);
+			})
+			
+			options.push(
+				'_',
+				{name: 'menu.palette.load.empty', icon: 'clear', id: 'empty', click: () => {
+					loadPalette([]);
+				}}
+			);
+			return options;
+		}
+	})
+	BarItems.load_palette.default_palettes = [
+		{name: 'menu.palette.load.default', icon: 'bubble_chart', id: 'default', click: () => {
+			loadPalette(palettes.default);
+		}},
+		{name: 'Endesga 64', description: 'Pixel art palette created by lospec.com/endesga', icon: 'bubble_chart', id: 'endesga64', click: () => {
+			loadPalette(palettes.endesga64);
+		}},
+		{name: 'Material', icon: 'bubble_chart', id: 'material', click: () => {
+			loadPalette(palettes.material);
+		}},
+		'_'
+	];
+
+	new Action('save_palette', {
+		icon: 'playlist_add',
+		condition: {modes: ['paint']},
+		click(event) {	
+			let dialog = new Dialog({
+				id: 'save_palette',
+				title: 'action.save_palette',
+				width: 540,
+				form: {
+					name: {label: 'generic.name'},
+				},
+				onConfirm: function(formResult) {
+					if (!formResult.name) return;
+	
+					let palette = {
+						name: formResult.name,
+						colors: ColorPanel.palette.slice()
+					}
+
+					StateMemory.color_palettes.push(palette);
+					StateMemory.save('color_palettes');
+				}
+			})
+			dialog.show()
+		}
 	})
 
 
 	new NumSlider('slider_color_h', {
-		condition: () => Modes.paint,
+		condition: () => Modes.paint && !StateMemory.color_picker_rgb,
 		category: 'color',
+		sensitivity: 15,
 		settings: {
 			min: 0, max: 360, default: 0, show_bar: true
 		},
 		getInterval(e) {
-			if (e.shiftKey || Pressing.overrides.shift) return 12.5;
-			if (e.ctrlOrCmd || Pressing.overrides.ctrl) return 1;
-			return 4
+			if (e.shiftKey || Pressing.overrides.shift) return 4;
+			return 1
 		},
 		get: function() {
 			return Math.round(ColorPanel.vue._data.hsv.h);
@@ -736,15 +1069,15 @@ BARS.defineActions(function() {
 		}
 	})
 	new NumSlider('slider_color_s', {
-		condition: () => Modes.paint,
+		condition: () => Modes.paint && !StateMemory.color_picker_rgb,
 		category: 'color',
+		sensitivity: 20,
 		settings: {
 			min: 0, max: 100, default: 0, show_bar: true
 		},
 		getInterval(e) {
 			if (e.shiftKey || Pressing.overrides.shift) return 10;
-			if (e.ctrlOrCmd || Pressing.overrides.ctrl) return 1;
-			return 2
+			return 1
 		},
 		get: function() {
 			return Math.round(ColorPanel.vue._data.hsv.s);
@@ -756,15 +1089,15 @@ BARS.defineActions(function() {
 		}
 	})
 	new NumSlider('slider_color_v', {
-		condition: () => Modes.paint,
+		condition: () => Modes.paint && !StateMemory.color_picker_rgb,
 		category: 'color',
+		sensitivity: 20,
 		settings: {
 			min: 0, max: 100, default: 100, show_bar: true
 		},
 		getInterval(e) {
 			if (e.shiftKey || Pressing.overrides.shift) return 10;
-			if (e.ctrlOrCmd || Pressing.overrides.ctrl) return 1;
-			return 2
+			return 1
 		},
 		get: function() {
 			return Math.round(ColorPanel.vue._data.hsv.v);
@@ -775,18 +1108,92 @@ BARS.defineActions(function() {
 			ColorPanel.updateFromHsv();
 		}
 	})
+	let slider_vector_color = [BarItems.slider_color_h, BarItems.slider_color_s, BarItems.slider_color_v];
+	slider_vector_color.forEach(slider => slider.slider_vector = slider_vector_color);
+
+	let red = new NumSlider('slider_color_red', {
+		condition: () => Modes.paint && StateMemory.color_picker_rgb,
+		category: 'color',
+		color: '#ff0000',
+		settings: {
+			min: 0, max: 255, default: 0, show_bar: true, step: 1
+		},
+		get() {
+			return parseInt(ColorPanel.vue.main_color.substring(1, 3), 16);
+		},
+		change: function(modify) {
+			var value = Math.clamp(modify(this.get()), 0, 255);
+			let hex = parseInt(value).toString(16);
+			if (hex.length == 1) hex = '0' + hex;
+			ColorPanel.vue.main_color = ColorPanel.vue.main_color.substring(0, 1) + hex + ColorPanel.vue.main_color.substring(3);
+		}
+	})
+	let green = new NumSlider('slider_color_green', {
+		condition: () => Modes.paint && StateMemory.color_picker_rgb,
+		category: 'color',
+		color: '#00db3d',
+		settings: {
+			min: 0, max: 255, default: 0, show_bar: true, step: 1
+		},
+		get() {
+			return parseInt(ColorPanel.vue.main_color.substring(3, 5), 16);
+		},
+		change: function(modify) {
+			var value = Math.clamp(modify(this.get()), 0, 255);
+			let hex = parseInt(value).toString(16);
+			if (hex.length == 1) hex = '0' + hex;
+			ColorPanel.vue.main_color = ColorPanel.vue.main_color.substring(0, 3) + hex + ColorPanel.vue.main_color.substring(5);
+		}
+	})
+	let blue = new NumSlider('slider_color_blue', {
+		condition: () => Modes.paint && StateMemory.color_picker_rgb,
+		category: 'color',
+		color: '#2c73ff',
+		settings: {
+			min: 0, max: 255, default: 0, show_bar: true, step: 1
+		},
+		get() {
+			return parseInt(ColorPanel.vue.main_color.substring(5), 16);
+		},
+		change: function(modify) {
+			var value = Math.clamp(modify(this.get()), 0, 255);
+			let hex = parseInt(value).toString(16);
+			if (hex.length == 1) hex = '0' + hex;
+			ColorPanel.vue.main_color = ColorPanel.vue.main_color.substring(0, 5) + hex;
+		}
+	})
+	let slider_vector_rgb = [red, green, blue];
+	slider_vector_rgb.forEach(slider => slider.slider_vector = slider_vector_rgb);
+
+
+	new NumSlider('slider_palette_color', {
+		condition: {modes: ['paint']},
+		category: 'color',
+		invert_scroll_direction: true,
+		get() {
+			return ColorPanel.palette.indexOf(ColorPanel.vue.main_color) + 1;
+		},
+		getInterval() {return 1},
+		change(modify) {
+			let value = Math.clamp(modify(this.get()), 1, ColorPanel.palette.length);
+			let color = ColorPanel.palette[value-1];
+			ColorPanel.set(color);
+		}
+	})
+
 	new Action('pick_screen_color', {
 		icon: 'colorize',
 		category: 'color',
-		condition: () => (typeof EyeDropper == 'function' || isApp),
+		condition: () => (typeof EyeDropper == 'function'),
 		click: async function () {
-			if (!isApp && typeof EyeDropper == 'function') {
+			if (Blockbench.platform == 'win32') {
+				// workaround for https://github.com/electron/electron/issues/27980
+				ipcRenderer.send('request-color-picker', {sync: false});
+
+			} else if (typeof EyeDropper == 'function') {
 				let dropper = new EyeDropper();
 				let {sRGBHex} = await dropper.open();
 				ColorPanel.set(sRGBHex);
-
-			} else if (isApp) {
-				ipcRenderer.send('request-color-picker', {sync: settings.sync_color.value});
 			}
 		}
 	})

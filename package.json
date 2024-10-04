@@ -1,7 +1,7 @@
 {
 	"name": "Blockbench",
 	"description": "Low-poly modeling and animation software",
-	"version": "4.1.5",
+	"version": "4.11.1",
 	"license": "GPL-3.0-or-later",
 	"author": {
 		"name": "JannisX11",
@@ -31,6 +31,7 @@
 					"x64"
 				]
 			},
+			"artifactName": "${productName}_${arch}_${version}.${ext}",
 			"category": "macOS.application",
 			"hardenedRuntime": true,
 			"entitlements": "build/entitlements.mac.plist",
@@ -44,6 +45,7 @@
 			"lib/",
 			"font/",
 			"main.js",
+			"bundle.js",
 			"index.html",
 			"package.json",
 			"favicon.png",
@@ -73,7 +75,18 @@
 			]
 		},
 		"win": {
-			"target": "nsis"
+			"certificateSubjectName": "Jannis Tobias Petersen",
+			"artifactName": "${productName}_${arch}_${version}.${ext}",
+			"target": {
+				"target": "nsis",
+				"arch": [
+					"arm64",
+					"x64"
+				]
+			}
+		},
+		"nsis": {
+			"license": "LICENSE.MD"
 		},
 		"linux": {
 			"artifactName": "${productName}_${version}.${ext}",
@@ -82,12 +95,20 @@
 				"rpm",
 				"appImage"
 			],
-			"category": "3DGraphics"
+			"category": "Graphics;3DGraphics",
+			"icon": "build/icon.icns"
 		},
 		"fileAssociations": [
 			{
 				"ext": "bbmodel",
 				"name": "Blockbench Project",
+				"mimeType": "model/vnd.blockbench.bbmodel",
+				"role": "Editor"
+			},
+			{
+				"ext": "json",
+				"name": "JSON Model",
+				"mimeType": "application/json",
 				"role": "Editor"
 			}
 		]
@@ -98,22 +119,25 @@
 		"dev": "electron .",
 		"dist": "electron-builder",
 		"beta": "electron-builder --windows portable",
+		"publish-windows": "npm run bundle && electron-builder -w --publish=onTagOrDraft && node ./scripts/rename_portable.js && electron-builder --windows portable --publish=onTagOrDraft",
 		"pwa": "node ./scripts/generate_pwa.js",
 		"prepublish": "npm run bundle && npm run pwa",
-		"webapp": "git checkout gh-pages && git merge master && git push && git checkout master"
+		"prepublish-beta": "node ./scripts/enable_beta.js && npm run bundle && npm run pwa",
+		"webapp": "git checkout gh-pages && git pull && git merge master && git push && git checkout master"
 	},
 	"devDependencies": {
-		"blockbench-types": "^4.0.0",
-		"electron": "^17.0.0",
-		"electron-builder": "^22.11.11",
-		"electron-notarize": "^1.0.0",
-		"webpack": "^5.21.2",
+		"@electron/notarize": "^2.3.0",
+		"blockbench-types": "^4.6.1",
+		"electron": "^31.4.0",
+		"electron-builder": "^24.13.3",
+		"webpack": "^5.74.0",
 		"webpack-cli": "^4.5.0",
-		"workbox-build": "^6.4.1"
+		"workbox-build": "^6.5.3"
 	},
 	"dependencies": {
-		"@electron/remote": "^2.0.1",
+		"@electron/remote": "^2.1.2",
 		"electron-color-picker": "^0.2.0",
-		"electron-updater": "^4.3.1"
+		"electron-updater": "^6.3.4",
+		"gifenc": "^1.0.3"
 	}
 }

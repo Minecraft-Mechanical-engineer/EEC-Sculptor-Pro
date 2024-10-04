@@ -72,10 +72,12 @@ THREE.OrbitControls = function ( object, preview ) {
 	};
 
 	this.updateSceneScale = function() {
-		if (scope.preview.isOrtho === true && scope.preview.camOrtho.axis && scope.preview.background.image !== false) {
-			scope.preview.updateBackground()
-		}
-		Transformer.update()
+		ReferenceImage.active.forEach(ref => {
+			if (ref.layer == 'blueprint' && ref.attached_side == scope.preview.angle) {
+				ref.updateTransform()
+			}
+		})
+		if (Transformer.visible) Transformer.update()
 		Blockbench.dispatchEvent('update_camera_position', {preview: scope.preview})
 	};
 
@@ -98,6 +100,8 @@ THREE.OrbitControls = function ( object, preview ) {
 		var lastQuaternion = new THREE.Quaternion();
 
 		return function update() {
+
+			if (scope.unlinked) return false;
 
 			var position = scope.object.position;
 
@@ -602,7 +606,7 @@ THREE.OrbitControls = function ( object, preview ) {
 		if ( Keybinds.extra.preview_rotate.keybind.isTriggered(event) ) {
 
 				if ( scope.enableRotate === false ) return;
-				if (event.which === 1 && Canvas.raycast(event) && display_mode === false) {
+				if (event.which === 1 && Canvas.raycast(event) && !Modes.display) {
 					return;
 				}
 				handleMouseDownRotate( event );
@@ -612,7 +616,7 @@ THREE.OrbitControls = function ( object, preview ) {
 		} else if ( Keybinds.extra.preview_drag.keybind.isTriggered(event) ) {
 
 			if ( scope.enablePan === false ) return;
-			if (event.which === 1 && Canvas.raycast(event) && display_mode === false) {
+			if (event.which === 1 && Canvas.raycast(event) && !Modes.display) {
 				return;
 			}
 			handleMouseDownPan( event );
@@ -621,7 +625,7 @@ THREE.OrbitControls = function ( object, preview ) {
 		} else if ( Keybinds.extra.preview_zoom.keybind.isTriggered(event) ) {
 
 			if ( scope.enableZoom === false ) return;
-			if (event.which === 1 && Canvas.raycast(event) && display_mode === false) {
+			if (event.which === 1 && Canvas.raycast(event) && !Modes.display) {
 				return;
 			}
 			handleMouseDownDolly( event );

@@ -2,7 +2,8 @@ const LastVersion = localStorage.getItem('last_version') || localStorage.getItem
 
 const Blockbench = {
 	isWeb: !isApp,
-	isMobile: !isApp && window.innerWidth <= 640,
+	isMobile: (window.innerWidth <= 960 || window.innerHeight <= 500) && 'ontouchend' in document,
+	isLandscape: window.innerWidth > window.innerHeight,
 	isTouch: 'ontouchend' in document,
 	get isPWA() {
 		return navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
@@ -19,7 +20,6 @@ const Blockbench = {
 		Undo.finishEdit()
 	},
 	reload() {
-		localStorage.removeItem('backup_model')
 		if (isApp) {
 			Blockbench.setProgress(0)
 			Blockbench.addFlag('allow_closing')
@@ -47,11 +47,17 @@ const Blockbench = {
 		if (icon === undefined) {
 			//Missing
 			node = document.createElement('i');
-			node.classList.add('material-icons', 'icon');
+			node.classList.add('material-icons', 'notranslate', 'icon');
 			node.innerText = 'help_outline';
 		} else if (icon instanceof HTMLElement) {
 			//Node
 			node = icon
+		} else if (icon === true || icon === false) {
+			//Boolean
+			node = document.createElement('i');
+			node.classList.add('material-icons', 'notranslate', 'icon');
+			node.innerText = icon ? 'check_box' : 'check_box_outline_blank';
+
 		} else if (icon === null) {
 			//Node
 			node = document.createElement('i');
@@ -78,7 +84,7 @@ const Blockbench = {
 		} else {
 			//Material Icon
 			node = document.createElement('i');
-			node.classList.add('material-icons', 'icon');
+			node.classList.add('material-icons', 'notranslate', 'icon');
 			node.innerText = icon;
 		}
 		if (color) {
@@ -94,19 +100,14 @@ const Blockbench = {
 		}
 		return node
 	},
-	showQuickMessage(message, time) {
-		$('#quick_message_box').remove()
-		var quick_message_box = $('<div id="quick_message_box" class="hidden"></div>') 
-		$('body').append(quick_message_box)
-		
-		quick_message_box.text(tl(message))
-		quick_message_box.fadeIn(0)
+	showQuickMessage(message, time = 1000) {
+		document.getElementById('quick_message_box')?.remove();
+		let quick_message_box = Interface.createElement('div', {id: 'quick_message_box'}, tl(message));
+		document.body.append(quick_message_box);
+
 		setTimeout(function() {
-			quick_message_box.fadeOut(0)
-			setTimeout(function() {
-				quick_message_box.remove()
-			}, 1)
-		}, time ? time : 1000)
+			quick_message_box.remove()
+		}, time);
 	},
 	/**
 	 * 
@@ -166,6 +167,22 @@ const Blockbench = {
 		}
 		return new deletableToast(notification);
 	},
+	setCursorTooltip(text) {
+		if (!Interface.cursor_tooltip) {
+			Interface.cursor_tooltip = Interface.createElement('div', {id: 'cursor_tooltip'});
+		}
+		if (text) {
+			Interface.cursor_tooltip.textContent = text;
+			if (!Interface.cursor_tooltip.parentNode) {
+				document.body.append(Interface.cursor_tooltip);
+				Interface.cursor_tooltip.style.left = mouse_pos.x + 'px';
+				Interface.cursor_tooltip.style.top = mouse_pos.y + 'px';
+			}
+		} else {
+			Interface.cursor_tooltip.textContent = '';
+			Interface.cursor_tooltip.remove();
+		}
+	},
 	showStatusMessage(message, time) {
 		Blockbench.setStatusBarText(tl(message))
 		setTimeout(function() {
@@ -190,106 +207,26 @@ const Blockbench = {
 		}
 	},
 	showMessageBox(options = 0, cb) {
-
-		if (options.confirm === undefined) options.confirm = 0
-		if (options.cancel === undefined) options.cancel = (options.buttons && options.buttons.length) ? options.buttons.length-1 : 0;
-		if (!options.buttons) options.buttons = [tl('dialog.ok')]
-
-		if (options.translateKey) {
-			if (!options.title) options.title = tl('message.'+options.translateKey+'.title')
-			if (!options.message) options.message = tl('message.'+options.translateKey+'.message')
-		}
-
-		var jq_dialog = $(`
-			<dialog class="dialog" style="width: auto;" id="message_box">
-				<div class="dialog_handle"><div class="dialog_title">${tl(options.title)}</div></div>
-				<div class="dialog_close_button" onclick="open_interface.cancel()"><i class="material-icons">clear</i></div>
-			</dialog>`)
-
-		jq_dialog.append('<div class="dialog_content"><div class="dialog_bar" style="height: auto; min-height: 56px; margin-bottom: 16px;">'+
-			marked(tl(options.message))+
-			'</div></div>'
-		)
-		if (options.icon) {
-			jq_dialog.find('.dialog_bar').prepend($(Blockbench.getIconNode(options.icon)).addClass('message_box_icon'))
-		}
-
-		function close(button) {
-			hideDialog();
-			setTimeout(function() {
-				jq_dialog.remove();
-			},200)
-			if (cb) {
-				cb(button);
-			}
-		}
-
-		var buttons = []
-
-		options.buttons.forEach(function(b, i) {
-			var btn = $('<button type="button">'+tl(b)+'</button>')
-			btn.click(function(e) {
-				close(i);
-			})
-			buttons.push(btn);
-		})
-		jq_dialog.hide = function() {
-			$(jq_dialog.find('button').get(options.cancel)).click()
-		}
-		buttons[options.confirm].addClass('confirm_btn')
-		buttons[options.cancel].addClass('cancel_btn')
-		jq_dialog.append($('<div class="dialog_bar button_bar"></div>').append(buttons))
-		buttons.forEach(b => {
-			b.after('&nbsp;')
-		})
-
-
-		jq_dialog.addClass('draggable')
-		jq_dialog.draggable({
-			handle: ".dialog_handle",
-			containment: '#page_wrapper'
-		})
-		var x = (window.innerWidth-540)/2
-		jq_dialog.css('left', x+'px')
-		jq_dialog.css('position', 'absolute')
-
-		$('#dialog_wrapper').append(jq_dialog)
-		$('.dialog').hide()
-		$('#blackout').show()
-		jq_dialog.show()
-
-		jq_dialog.css('top', limitNumber(window.innerHeight/2-jq_dialog.height()/2 - 140, 0, 2000)+'px')
-		if (options.width) {
-			jq_dialog.css('width', options.width+'px')
-		} else {
-			jq_dialog.css('width', limitNumber(options.buttons.length*170+44, 380, 894)+'px')
-		}
-		open_dialog = 'message_box'
-		open_interface = {
-			confirm() {
-				close(options.confirm);
-			},
-			cancel() {
-				close(options.cancel);
-			}
-		}
-		return jq_dialog
+		return new MessageBox(options, cb).show();
 	},
 	async textPrompt(title, value, callback, placeholder = null) {
-		showDialog('text_input')
-		$('#text_input .dialog_handle .dialog_title').text(tl(title || 'dialog.input.title'))
-		$('#text_input input#text_input_field').val(value).trigger('select').attr('placeholder', placeholder);
-		$('#text_input button.confirm_btn').off()
-		let text = await new Promise(resolve => {
-			$('#text_input button.confirm_btn').on('click', function() {
-				var s = $('#text_input input#text_input_field').val()
-				resolve(s)
-			})
-		})
-		if (callback !== undefined) {
-			callback(text);
-		}
-		return text;
+		let answer = await new Promise((resolve) => {
+			new Dialog({
+				id: 'text_input',
+				title: title || 'dialog.input.title',
+				form: {
+					text: {full_width: true, placeholder, value}
+				},
+				onConfirm({text}) {
+					if (callback) callback(text);
+					resolve(text);
+				},
+				onOpen() {
+					this.object.querySelector('input')?.focus();
+				}
+			}).show();
+		});
+		return answer;
 	},
 	addMenuEntry(name, icon, click) {
 		console.warn('Blockbench.addMenuEntry is deprecated. Please use Actions instead.')
@@ -325,8 +262,8 @@ const Blockbench = {
 	//CSS
 	addCSS(css) {
 		let style_node = document.createElement('style');
-        style_node.type ='text/css';
-        style_node.appendChild(document.createTextNode(css));
+		style_node.type ='text/css';
+		style_node.appendChild(document.createTextNode(css));
 		document.getElementsByTagName('head')[0].appendChild(style_node);
 		function deletableStyle(node) {
 			this.delete = function() {
@@ -348,32 +285,34 @@ const Blockbench = {
 	//Events
 	dispatchEvent(event_name, data) {
 		let list = this.events[event_name];
-		if (!list) return;
-		let results = [];
-		for (let i = 0; i < list.length; i++) {
-			if (typeof list[i] === 'function') {
-				let result = list[i](data);
-				results.push(result);
+		let results;
+		if (list) {
+			results = [];
+			for (let i = 0; i < list.length; i++) {
+				if (typeof list[i] === 'function') {
+					let result = list[i](data);
+					results.push(result);
+				}
 			}
+		}
+		if (Validator.triggers.includes(event_name)) {
+			Validator.validate(event_name);
 		}
 		return results;
 	},
-	addListener(event_names, cb) {
-		event_names.split(' ').forEach(event_name => {
-			if (!this.events[event_name]) {
-				this.events[event_name] = [];
-			}
-			this.events[event_name].safePush(cb);
-		})
-		return Blockbench;
-	},
 	on(event_name, cb) {
-		return Blockbench.addListener(event_name, cb) 
+		return EventSystem.prototype.on.call(this, event_name, cb);
+	},
+	once(event_name, cb) {
+		return EventSystem.prototype.once.call(this, event_name, cb);
+	},
+	addListener(event_name, cb) {
+		return EventSystem.prototype.addListener.call(this, event_name, cb);
 	},
 	removeListener(event_name, cb) {
-		if (!this.events[event_name]) return;
-		this.events[event_name].remove(cb);
+		return EventSystem.prototype.removeListener.call(this, event_name, cb);
 	},
+	// Update
 	onUpdateTo(version, callback) {
 		if (LastVersion && compareVersions(version, LastVersion) && !Blockbench.isOlderThan(version)) {
 			callback(LastVersion);
@@ -384,7 +323,14 @@ const Blockbench = {
 (function() {
 	if (!LastVersion || LastVersion.replace(/.\d+$/, '') != appVersion.replace(/.\d+$/, '')) {
 		Blockbench.addFlag('after_update');
+	} else if (LastVersion != appVersion) {
+		Blockbench.addFlag('after_patch_update');
 	}
+	try {
+		let ui_mode = JSON.parse(localStorage.getItem('settings')).interface_mode.value;
+		if (ui_mode == 'desktop') Blockbench.isMobile = false;
+		if (ui_mode == 'mobile') Blockbench.isMobile = true;
+	} catch (err) {}
 })();
 
 if (isApp) {
@@ -400,6 +346,11 @@ if (isApp) {
 
 
 const StateMemory = {
+	/**
+	 * Initialize a memorized property
+	 * @param {string} key 
+	 * @param {'string'|'number'|'boolean'|'object'|'array'} type 
+	 */
 	init(key, type) {
 		let saved = localStorage.getItem(`StateMemory.${key}`)
 		if (typeof saved == 'string') {
@@ -420,6 +371,14 @@ const StateMemory = {
 				case 'array': return []; break;
 			}})();
 		}
+	},
+	set(key, value) {
+		if (StateMemory[key] instanceof Array) {
+			StateMemory[key].replace(value);
+		} else {
+			StateMemory[key] = value;
+		}
+		StateMemory.save(key);
 	},
 	save(key) {
 		let serialized = JSON.stringify(StateMemory[key])

@@ -1,41 +1,90 @@
 var open_menu = null;
-
+class MenuSeparator {
+	constructor(id, label) {
+		this.id = id || '';
+		this.menu_node = Interface.createElement('li', {class: 'menu_separator', menu_separator_id: id});
+		if (label) {
+			label = tl(label);
+			this.menu_node.append(Interface.createElement('label', {}, label));
+			this.menu_node.classList.add('has_label');
+		}
+	}
+}
 function handleMenuOverflow(node) {
 	node = node.get(0);
 	if (!node) return;
-	// Todo: mobile support
-	node.addEventListener('wheel', e => {
-		e.stopPropagation();
+	function offset(amount) {
 		let top = parseInt(node.style.top);
 		let offset = top - $(node).offset().top;
+		let top_gap = 26;
+		if (Blockbench.isMobile && Menu.open instanceof BarMenu) {
+			top_gap = window.innerHeight > 400 ? 106 : 56;
+		}
 		top = Math.clamp(
-			top - e.deltaY,
+			top + amount,
 			window.innerHeight - node.clientHeight + offset,
-			offset + 26
+			offset + top_gap
 		);
 		node.style.top = `${top}px`;
+	}
+	if (Blockbench.isTouch) {
+		node.addEventListener('touchstart', e1 => {
+			e1.stopPropagation();
+			convertTouchEvent(e1);
+			let last_y = e1.clientY;
+			let move = e2 => {
+				convertTouchEvent(e2);
+				offset(e2.clientY - last_y);
+				last_y = e2.clientY;
+			}
+			let stop = e2 => {
+				document.removeEventListener('touchmove', move);
+				document.removeEventListener('touchend', stop);
+			}
+			document.addEventListener('touchmove', move);
+			document.addEventListener('touchend', stop);
+		})
+	}
+	node.addEventListener('wheel', e => {
+		e.stopPropagation();
+		offset(-e.deltaY);
 	})
 }
 class Menu {
-	constructor(id, structure) {
-		if (!structure) structure = id;
+	constructor(id, structure, options) {
+		if (typeof id !== 'string') {
+			options = structure;
+			structure = id;
+		}
 		this.id = typeof id == 'string' ? id : '';
 		this.children = [];
-		this.node = $('<ul class="contextMenu"></ul>')[0]
-		this.structure = structure
+		this.structure = structure;
+		this.options = options || {};
+		this.onOpen = this.options.onOpen;
+		this.onClose = this.options.onClose;
+		this.node = document.createElement('ul');
+		this.node.classList.add('contextMenu');
+		if (this.options.class) {
+			if (this.options.class instanceof Array) {
+				this.node.classList.add(...this.options.class);
+			} else {
+				this.node.classList.add(this.options.class);
+			}
+		}
 	}
 	hover(node, event, expand) {
+		if (node.classList.contains('focused') && !expand) return;
 		if (event) event.stopPropagation()
 		$(open_menu.node).find('li.focused').removeClass('focused')
 		$(open_menu.node).find('li.opened').removeClass('opened')
 		var obj = $(node)
-		obj.addClass('focused')
+		node.classList.add('focused')
 		obj.parents('li.parent, li.hybrid_parent').addClass('opened')
 
 		if (obj.hasClass('parent') || (expand && obj.hasClass('hybrid_parent'))) {
 			var childlist = obj.find('> ul.contextMenu.sub')
 
-			if (expand) obj.addClass('opened');
+			if (expand) node.classList.add('opened');
 
 			var p_width = obj.outerWidth()
 			childlist.css('left', p_width + 'px')
@@ -55,20 +104,27 @@ class Menu {
 				}
 			}
 
-			let window_height = window.innerHeight - 26;
+			let top_gap = 26;
+			if (Blockbench.isMobile && this instanceof BarMenu) {
+				top_gap = window.innerHeight > 400 ? 106 : 56;
+			}
+			let window_height = window.innerHeight - top_gap;
 
 			if (el_height > window_height) {
 				childlist.css('margin-top', '0').css('top', '0')
-				childlist.css('top', (-childlist.offset().top + 26) + 'px')
+				childlist.css('top', (-childlist.offset().top + top_gap) + 'px')
 				handleMenuOverflow(childlist);
 
 			} else if (offset.top + el_height > window_height) {
-				childlist.css('margin-top', 26-childlist.height() + 'px')
-				if (childlist.offset().top < 26) {
-					childlist.offset({top: 26})
+				childlist.css('margin-top', top_gap-childlist.height() + 'px')
+				if (childlist.offset().top < top_gap) {
+					childlist.offset({top: top_gap})
 				}
 			}
 		}
+	}
+	reveal(path) {
+
 	}
 	keyNavigate(e) {
 		var scope = this;
@@ -112,9 +168,9 @@ class Menu {
 			}
 			used = true;
 		} else if (Keybinds.extra.confirm.keybind.isTriggered(e)) {
-			obj.find('li.focused').click()
-			if (scope) {
-				scope.hide()
+			obj.find('li.focused').trigger('click');
+			if (scope && !this.options.keep_open) {
+				//scope.hide()
 			}
 			used = true;
 		} else if (Keybinds.extra.cancel.keybind.isTriggered(e)) {
@@ -124,42 +180,48 @@ class Menu {
 		return used;
 	}
 	open(position, context) {
+		if (this.onOpen) this.onOpen(position, context);
 
 		if (position && position.changedTouches) {
 			convertTouchEvent(position);
 		}
+		let last_context = context;
 		var scope = this;
 		var ctxmenu = $(this.node)
 		if (open_menu) {
 			open_menu.hide()
 		}
-		$('body').append(ctxmenu)
+		document.body.append(this.node);
 
 		ctxmenu.children().detach()
 
-		function createChildList(object, node) {
-			if (typeof object.children == 'function') {
-				var list = object.children(context)
-			} else {
-				var list = object.children
+		function createChildList(object, node, list) {
+			if (!list && typeof object.children == 'function') {
+				list = object.children(context)
+			} else if (!list) {
+				list = object.children
 			}
+			node = $(node);
 			node.find('ul.contextMenu.sub').detach();
 			if (list.length) {
-				var childlist = $('<ul class="contextMenu sub"></ul>')
-				list.forEach(function(s2, i) {
-					getEntry(s2, childlist)
-				})
-				var last = childlist.children().last()
-				if (last.length && last.hasClass('menu_separator')) {
-					last.remove()
-				}
-				if (typeof object.click == 'function' && object instanceof Action == false) {
-					node.addClass('hybrid_parent');
-					let more_button = Interface.createElement('div', {class: 'menu_more_button'}, Blockbench.getIconNode('more_horiz'));
-					node.append(more_button);
-					$(more_button).mouseenter(e => {
-						scope.hover(node.get(0), e, true);
-					})
+				var childlist = $(Interface.createElement('ul', {class: 'contextMenu sub'}));
+
+				populateList(list, childlist, object.searchable);
+
+				if ((typeof object.click == 'function' || object instanceof Tool) && (object instanceof Action == false || object.side_menu)) {
+					if (node.find('> .menu_more_button').length == 0) {
+						node.addClass('hybrid_parent');
+						let more_button = Interface.createElement('div', {class: 'menu_more_button'}, Blockbench.getIconNode('more_horiz'));
+						node.append(more_button);
+						more_button.addEventListener('mouseenter', e => {
+							scope.hover(node.get(0), e, true);
+						})
+						more_button.addEventListener('mouseleave', e => {
+							if (node.is(':hover') && !childlist.is(':hover')) {
+								scope.hover(node.get(0), e);
+							}
+						})
+					}
 				} else {
 					node.addClass('parent');
 				}
@@ -168,52 +230,138 @@ class Menu {
 			}
 			return 0;
 		}
+		function populateList(list, menu_node, searchable) {
+			
+			if (searchable) {
+				let display_limit = 256;
+				let input = Interface.createElement('input', {type: 'text', placeholder: tl('generic.search'), inputmode: 'search'});
+				let search_button = Interface.createElement('div', {}, Blockbench.getIconNode('search'));
+				let search_bar = Interface.createElement('li', {class: 'menu_search_bar'}, [input, search_button]);
+				menu_node.append(search_bar);
+				
+				let object_list = [];
+				list.forEach(function(s2, i) {
+					let node = getEntry(s2, menu_node);
+					if (!node) return;
+					object_list.push({
+						object: s2,
+						node: node,
+						id: s2.id,
+						name: s2.name,
+						description: s2.description,
+					})
+				})
+				search_button.onclick = (e) => {
+					input.value = '';
+					input.oninput(e);
+				}
+				input.oninput = (e) => {
+					let search_term = input.value.toUpperCase();
+					search_button.firstElementChild.replaceWith(Blockbench.getIconNode(search_term ? 'clear' : 'search'));
+
+					object_list.forEach(item => {
+						$(item.node).detach();
+					})
+					let count = 0;
+					for (let item of object_list) {
+						if (count > display_limit) break;
+						if (
+							typeof item.object == 'string' ||
+							item.object.always_show ||
+							(item.id && item.id.toUpperCase().includes(search_term)) ||
+							(item.name && item.name.toUpperCase().includes(search_term)) ||
+							(item.description && item.description.toUpperCase().includes(search_term))
+						) {
+							menu_node.append(item.node);
+							count++;
+						}
+					}
+				}
+				input.oninput(0);
+				if (menu_node == ctxmenu) {
+					input.focus();
+				}
+
+			} else {
+				list.forEach((object) => {
+					getEntry(object, menu_node);
+				})
+			}
+			let nodes = menu_node.children();
+			if (nodes.length && nodes.last().hasClass('menu_separator')) {
+				nodes.last().remove();
+			}
+
+			let is_scrollable = !nodes.toArray().find(node => node.classList.contains('parent') || node.classList.contains('hybrid_parent'));
+			menu_node.toggleClass('scrollable', is_scrollable);
+		}
 
 		function getEntry(s, parent) {
 
+			if (s.context) {
+				last_context = context;
+				context = s.context;
+			}
+			let scope_context = context;
 			var entry;
 			if (s === '_') {
-				entry = new MenuSeparator().menu_node
+				s = new MenuSeparator();
+			} else if (typeof s == 'string' && s.startsWith('#')) {
+				s = new MenuSeparator(s.substring(1));
+			}
+			if (s instanceof MenuSeparator) {
+				entry = s.menu_node;
 				var last = parent.children().last()
 				if (last.length && !last.hasClass('menu_separator')) {
-					parent.append(entry)
+					parent[0].append(entry)
 				}
-				return;
+				return entry;
 			}
 			if (typeof s == 'string' && BarItems[s]) {
 				s = BarItems[s];
 			}
-			if (!Condition(s.condition, context)) return;
+			if (typeof s === 'function') {
+				s = s(scope_context);
+			}
+			if (!Condition(s.condition, scope_context)) return;
 
 			if (s instanceof Action) {
 
-				entry = $(s.menu_node)
+				entry = s.menu_node
 
-				entry.removeClass('focused')
-				entry.off('click')
-				entry.off('mouseenter mousedown')
-				entry.on('mouseenter mousedown', function(e) {
-					if (this == e.target) {
-						scope.hover(this, e)
-					}
-				})
+				entry.classList.remove('focused');
+
 				//Submenu
 				if (typeof s.children == 'function' || typeof s.children == 'object') {
 					createChildList(s, entry)
 				} else {
-					entry.on('click', (e) => {s.trigger(e)})
+					if (s.side_menu instanceof Menu) {
+						let content_list = typeof s.side_menu.structure == 'function' ? s.side_menu.structure(scope_context) : s.side_menu.structure;
+						createChildList(s, entry, content_list);
+
+					} else if (s.side_menu instanceof Dialog) {
+						createChildList(s, entry, [
+							{
+								name: 'menu.options',
+								icon: 'web_asset',
+								click() {
+									s.side_menu.show();
+								}
+							}
+						]);
+					}
 				}
 
-				parent.append(entry)
+				parent[0].append(entry)
 
 			} else if (s instanceof BarSelect) {
 				
 				if (typeof s.icon === 'function') {
-					var icon = Blockbench.getIconNode(s.icon(context), s.color)
+					var icon = Blockbench.getIconNode(s.icon(scope_context), s.color)
 				} else {
 					var icon = Blockbench.getIconNode(s.icon, s.color)
 				}
-				entry = $(`<li title="${s.description ? tl(s.description) : ''}" menu_item="${s.id}"><span>${tl(s.name)}</span></li>`)
+				entry = Interface.createElement('li', {title: s.description && tl(s.description), menu_item: s.id}, Interface.createElement('span', {}, tl(s.name)));
 				entry.prepend(icon)
 
 				//Submenu
@@ -243,22 +391,94 @@ class Menu {
 				let child_count = createChildList({children}, entry)
 
 				if (child_count !== 0 || typeof s.click === 'function') {
-					parent.append(entry)
+					parent[0].append(entry)
 				}
-				entry.mouseenter(function(e) {
+				entry.addEventListener('mouseenter', function(e) {
+					scope.hover(entry, e);
+				})
+
+			} else if (s instanceof NumSlider) {
+				let item = s;
+				let trigger = {
+					name: item.name,
+					description: item.description,
+					icon: 'code',
+					click() {
+						let settings = {};
+						if (item.settings) {
+							settings = {
+								min: item.settings.min,
+								max: item.settings.max,
+								step: item.settings.step
+							}
+							if (typeof item.settings.interval == 'function') {
+								settings.step = item.settings.interval(event);
+							}
+						}
+						new Dialog(item.id, {
+							title: item.name,
+							width: 360,
+							form: {
+								value: {label: item.name, type: 'number', value: item.get(), ...settings}
+							},
+							onConfirm(result) {
+								if (typeof item.onBefore === 'function') {
+									item.onBefore();
+								}
+								item.change(n => result.value);
+								item.update();
+								if (typeof item.onAfter === 'function') {
+									item.onAfter();
+								}
+							}
+						}).show();
+					}
+				}
+				return getEntry(trigger, parent);
+				
+				/*let icon = Blockbench.getIconNode(s.icon, s.color);
+				let numeric_input = new Interface.CustomElements.NumericInput(s.id, {
+					value: s.get(),
+					min: s.settings?.min, max: s.settings?.max,
+					onChange(value) {
+						if (typeof s.onBefore === 'function') {
+							s.onBefore()
+						}
+						s.change(() => value);
+						if (typeof s.onAfter === 'function') {
+							s.onAfter()
+						}
+						s.update();
+					}
+				});
+				entry = Interface.createElement('li', {title: s.description && tl(s.description), menu_item: s.id}, [
+					Interface.createElement('span', {}, tl(s.name)),
+					numeric_input.node
+				]);
+				entry.prepend(icon);
+
+				parent[0].append(entry);
+
+				$(entry).mouseenter(function(e) {
 					scope.hover(this, e)
 				})
+				*/
+			} else if (s instanceof HTMLElement) {
+				parent[0].append(s);
 
 			} else if (typeof s === 'object') {
 				
 				let child_count;
 				if (typeof s.icon === 'function') {
-					var icon = Blockbench.getIconNode(s.icon(context), s.color)
+					var icon = Blockbench.getIconNode(s.icon(scope_context), s.color)
 				} else {
 					var icon = Blockbench.getIconNode(s.icon, s.color)
 				}
-				entry = $(`<li title="${s.description ? tl(s.description) : ''}" menu_item="${s.id}"><span>${tl(s.name)}</span></li>`);
+				entry = Interface.createElement('li', {title: s.description && tl(s.description), menu_item: s.id}, Interface.createElement('span', {}, tl(s.name)));
 				entry.prepend(icon);
+				if (s.marked) {
+					entry.classList.add('marked');
+				}
 				if (s.keybind) {
 					let label = document.createElement('label');
 					label.classList.add('keybinding_label')
@@ -266,9 +486,9 @@ class Menu {
 					entry.append(label);
 				}
 				if (typeof s.click === 'function') {
-					entry.on('click', e => {
-						if (e.target == entry.get(0)) {
-							s.click(context, e)
+					entry.addEventListener('click', e => {
+						if (e.target == entry) {
+							s.click(scope_context, e)
 						}
 					})
 				}
@@ -277,33 +497,36 @@ class Menu {
 					child_count = createChildList(s, entry);
 				}
 				if (child_count !== 0 || typeof s.click === 'function') {
-					parent.append(entry)
+					parent[0].append(entry)
 				}
-				entry.mouseenter(function(e) {
-					scope.hover(this, e)
+				addEventListeners(entry, 'mouseenter mouseover', (e) => {
+					if (e.target.classList.contains('menu_separator')) return;
+					if (e.target.classList.contains('contextMenu')) return;
+					scope.hover(entry, e);
 				})
 			}
 			//Highlight
 			if (scope.highlight_action == s && entry) {
 				let obj = entry;
-				while (obj[0] && obj[0].nodeName == 'LI') {
-					obj.addClass('highlighted');
-					obj = obj.parent().parent();
+				while (obj && obj.nodeName == 'LI') {
+					obj.classList.add('highlighted');
+					obj = obj.parentElement.parentElement;
 				}
 			}
+			if (s.context && last_context != context) context = last_context;
+			return entry;
 		}
 
-		scope.structure.forEach(function(s, i) {
-			getEntry(s, ctxmenu)
-		})
-		var last = ctxmenu.children().last()
-		if (last.length && last.hasClass('menu_separator')) {
-			last.remove()
-		}
+		let content_list = typeof this.structure == 'function' ? this.structure(context) : this.structure;
+		populateList(content_list, ctxmenu, this.options.searchable);
 
-		var el_width = ctxmenu.width()
-		var el_height = ctxmenu.height()
-		let window_height = window.innerHeight - 26;
+		let el_width = ctxmenu.width()
+		let el_height = ctxmenu.height()
+		let top_gap = 26;
+		if (Blockbench.isMobile && this instanceof BarMenu) {
+			top_gap = window.innerHeight > 400 ? 106 : 56;
+		}
+		let window_height = window.innerHeight - top_gap;
 
 		if (position && position.clientX !== undefined) {
 			var offset_left = position.clientX
@@ -324,7 +547,7 @@ class Menu {
 				position = position.parentElement;
 			}
 			var offset_left = $(position).offset().left;
-			var offset_top  = $(position).offset().top + position.clientHeight;
+			var offset_top  = $(position).offset().top + position.offsetHeight;
 		}
 
 		if (offset_left > window.innerWidth - el_width) {
@@ -332,13 +555,19 @@ class Menu {
 			if (position && position.clientWidth) offset_left += position.clientWidth;
 			if (offset_left < 0) offset_left = 0;
 		}
-		if (offset_top  > window_height - el_height ) {
-			offset_top -= el_height;
-			if (position instanceof HTMLElement) {
-				offset_top -= position.clientHeight;
+		if (offset_top > window_height - el_height ) {
+			if (el_height < offset_top - 50) {
+				// Snap to element top
+				offset_top -= el_height;
+				if (position instanceof HTMLElement) {
+					offset_top -= position.clientHeight;
+				}
+			} else {
+				// Move up
+				offset_top = window_height - el_height;
 			}
 		}
-		offset_top = Math.clamp(offset_top, 26)
+		offset_top = Math.max(offset_top, top_gap);
 
 		ctxmenu.css('left', offset_left+'px')
 		ctxmenu.css('top',  offset_top +'px')
@@ -347,52 +576,79 @@ class Menu {
 			handleMenuOverflow(ctxmenu);
 		}
 
-		$(scope.node).on('click', (ev) => {
+		scope.node.onclick = (ev) => {
 			if (
-				ev.target.className.includes('parent') ||
-				(ev.target.parentNode && ev.target.parentNode.className.includes('parent'))
+				ev.target.classList.contains('parent') ||
+				(ev.target.parentNode && ev.target.parentNode.classList.contains('parent')) ||
+				ev.target.classList.contains('menu_search_bar') ||
+				(ev.target.parentNode && ev.target.parentNode.classList.contains('menu_search_bar'))
 			) {} else {
-				scope.hide()
+				if (this.options.keep_open) {
+					this.hide()
+					this.open(position, context);
+				} else {
+					this.hide()
+				}
 			}
-		})
+		}
 
 		if (scope.type === 'bar_menu') {
 			MenuBar.open = scope
-			$(scope.label).addClass('opened')
+			scope.label.classList.add('opened');
 		}
 		open_menu = scope;
+		Menu.open = this;
 		return scope;
 	}
-	show(position) {
-		return this.open(position);
+	show(...args) {
+		return this.open(...args);
 	}
 	hide() {
+		if (this.onClose) this.onClose();
 		$(this.node).find('li.highlighted').removeClass('highlighted');
-		$(this.node).detach()
+		this.node.remove()
 		open_menu = null;
+		Menu.open = null;
 		return this;
 	}
 	conditionMet() {
 		return Condition(this.condition);
 	}
-	addAction(action, path) {
-
-		if (path === undefined) path = ''
-		var track = path.split('.')
+	addAction(action, path = '') {
+		if (this.structure instanceof Array == false) return;
+		if (typeof path !== 'string') path = path.toString();
+		let track = path.split('.')
 
 		function traverse(arr, layer) {
-			if (track.length === layer || track[layer] === '' || !isNaN(parseInt(track[layer]))) {
-				var index = arr.length;
+			if (track.length === layer || track[layer] === '' || !isNaN(parseInt(track[layer])) || (track[layer][0] == '#')) {
+				let index = arr.length;
 				if (track[layer] !== '' && track.length !== layer) {
-					index = parseInt(track[layer])
+					if (track[layer].startsWith('#')) {
+						// Group Anchor
+						let group = track[layer].substring(1);
+						let group_match = false;
+						index = 0;
+						for (let item of arr) {
+							if (item instanceof MenuSeparator) {
+								if (item.id == group) {
+									group_match = true;
+								} else if (group_match && item.id != group) {
+									break;
+								}
+							}
+							index++;
+						}
+					} else {
+						index = parseInt(track[layer])
+					}
 				}
 				arr.splice(index, 0, action)
 			} else {
-				for (var i = 0; i < arr.length; i++) {
-					var item = arr[i]
-					if (item.children && item.children.length > 0 && item.id === track[layer] && layer < 20) {
-						traverse(item.children, layer+1)
-						i = 1000
+				for (let i = 0; i < arr.length; i++) {
+					let item = arr[i]
+					if (item.children instanceof Array && item.id === track[layer] && layer < 20) {
+						traverse(item.children, layer+1);
+						break;
 					}
 				}
 			}
@@ -403,15 +659,21 @@ class Menu {
 		}
 	}
 	removeAction(path) {
+		if (this.structure instanceof Array == false) return;
 		var scope = this;
 		if (path instanceof Action) {
 			let action = path;
 			this.structure.remove(action);
 			this.structure.remove(action.id);
 			action.menus.remove(this);
+		} else if (this.structure.includes(path)) {
+			this.structure.remove(path);
 		}
 		if (path === undefined) path = '';
-		if (typeof path == 'string') path = path.split('.');
+		if (typeof path == 'string') {
+			path = path.split('.');
+		}
+		if (path instanceof Array == false) return;
 
 		function traverse(arr, layer) {
 			if (!isNaN(parseInt(path[layer]))) {
@@ -457,437 +719,10 @@ class Menu {
 		rm_item.menus.remove(scope)
 	}
 }
-class BarMenu extends Menu {
-	constructor(id, structure, options = {}) {
-		super()
-		var scope = this;
-		MenuBar.menus[id] = this
-		this.type = 'bar_menu'
-		this.id = id
-		this.children = [];
-		this.condition = options.condition
-		this.node = $('<ul class="contextMenu"></ul>')[0]
-		this.node.style.minHeight = '8px';
-		this.node.style.minWidth = '150px';
-		this.name = tl(options.name || `menu.${id}`);
-		this.label = $(`<li class="menu_bar_point">${this.name}</li>`)[0]
-		$(this.label).click(function() {
-			if (open_menu === scope) {
-				scope.hide()
-			} else {
-				scope.open()
-			}
-		})
-		$(this.label).mouseenter(function() {
-			if (MenuBar.open && MenuBar.open !== scope) {
-				scope.open()
-			}
-		})
-		this.structure = structure;
-		this.highlight_action = null;
-	}
-	hide() {
-		super.hide();
-		$(this.label).removeClass('opened');
-		MenuBar.open = undefined;
-		this.highlight_action = null;
-		this.label.classList.remove('highlighted');
-		return this;
-	}
-	highlight(action) {
-		this.highlight_action = action;
-		this.label.classList.add('highlighted');
-	}
+
+function preventContextMenu() {
+	Blockbench.addFlag('no_context_menu');
+	setTimeout(() => {
+		Blockbench.removeFlag('no_context_menu');
+	}, 20);
 }
-const MenuBar = {
-	menus: {},
-	open: undefined,
-	setup() {
-		MenuBar.menues = MenuBar.menus;
-		new BarMenu('file', [
-			'project_window',
-			'_',
-			{name: 'menu.file.new', id: 'new', icon: 'insert_drive_file',
-				children: function() {
-					var arr = [];
-					let redact = settings.streamer_mode.value;
-					for (var key in Formats) {
-						(function() {
-							var format = Formats[key];
-							arr.push({
-								id: format.id,
-								name: (redact && format.confidential) ? `[${tl('generic.redacted')}]` : format.name,
-								icon: format.icon,
-								description: format.description,
-								click: (e) => {
-									format.new()
-								}
-							})
-						})()
-					}
-					return arr;
-				}
-			},
-			{name: 'menu.file.recent', id: 'recent', icon: 'history',
-				condition() {return isApp && recent_projects.length},
-				children() {
-					var arr = []
-					let redact = settings.streamer_mode.value;
-					for (let p of recent_projects) {
-						if (arr.length > 12) break;
-						arr.push({
-							name: redact ? `[${tl('generic.redacted')}]` : p.name,
-							path: p.path,
-							description: redact ? '' : p.path,
-							icon: p.icon,
-							click(c, event) {
-								Blockbench.read([p.path], {}, files => {
-									loadModelFile(files[0]);
-								})
-							}
-						})
-					}
-					if (recent_projects.length > 12) {
-						arr.push('_', {
-							name: 'menu.file.recent.more',
-							icon: 'read_more',
-							click(c, event) {
-								ActionControl.select('recent: ');
-							}
-						})
-					}
-					if (arr.length) {
-						arr.push('_', {
-							name: 'menu.file.recent.clear',
-							icon: 'clear',
-							click(c, event) {
-								recent_projects.empty();
-								updateRecentProjects();
-							}
-						})
-					}
-					return arr
-				}
-			},
-			'open_model',
-			'open_from_link',
-			'new_window',
-			'_',
-			'save_project',
-			'save_project_as',
-			'convert_project',
-			'close_project',
-			'_',
-			{name: 'menu.file.import', id: 'import', icon: 'insert_drive_file', condition: () => Format && !Format.pose_mode, children: [
-				{
-					id: 'import_open_project',
-					name: 'menu.file.import.import_open_project',
-					icon: 'input',
-					condition: () => Project && ModelProject.all.length > 1,
-					children() {
-						let projects = [];
-						ModelProject.all.forEach(project => {
-							if (project == Project) return;
-							projects.push({
-								name: project.getDisplayName(),
-								icon: project.format.icon,
-								description: project.path,
-								click() {
-									let current_project = Project;
-									project.select();
-									let bbmodel = Codecs.project.compile();
-									current_project.select();
-									Codecs.project.merge(JSON.parse(bbmodel));
-								}
-							})
-						})
-						return projects;
-					}
-				},
-				'import_project',
-				'import_java_block_model',
-				'import_optifine_part',
-				'import_obj',
-				'extrude_texture'
-			]},
-			{name: 'generic.export', id: 'export', icon: 'insert_drive_file', children: [
-				'export_blockmodel',
-				'export_bedrock',
-				'export_entity',
-				'export_class_entity',
-				'export_optifine_full',
-				'export_optifine_part',
-				'export_minecraft_skin',
-				'export_gltf',
-				'export_obj',
-				'export_collada',
-				'upload_sketchfab',
-				'share_model',
-			]},
-			'export_over',
-			'export_asset_archive',
-			'_',
-			{name: 'menu.file.preferences', id: 'preferences', icon: 'tune', children: [
-				'settings_window',
-				'keybindings_window',
-				'theme_window',
-			]},
-			'plugins_window',
-			'edit_session'
-		])
-		new BarMenu('edit', [
-			'undo',
-			'redo',
-			'edit_history',
-			'_',
-			'add_cube',
-			'add_mesh',
-			'add_group',
-			'add_locator',
-			'add_null_object',
-			'add_texture_mesh',
-			'_',
-			'duplicate',
-			'rename',
-			'find_replace',
-			'unlock_everything',
-			'delete',
-			'_',
-			{name: 'data.mesh', id: 'mesh', icon: 'fa-gem', children: [
-				'extrude_mesh_selection',
-				'inset_mesh_selection',
-				'loop_cut',
-				'create_face',
-				'invert_face',
-				'merge_vertices',
-				'dissolve_edges',
-				'split_mesh',
-				'merge_meshes',
-			]},
-			'_',
-			'select_window',
-			'select_all',
-			'invert_selection'
-		])
-		new BarMenu('transform', [
-			'scale',
-			{name: 'menu.transform.rotate', id: 'rotate', icon: 'rotate_90_degrees_ccw', children: [
-				'rotate_x_cw',
-				'rotate_x_ccw',
-				'rotate_y_cw',
-				'rotate_y_ccw',
-				'rotate_z_cw',
-				'rotate_z_ccw'
-			]},
-			{name: 'menu.transform.flip', id: 'flip', icon: 'flip', children: [
-				'flip_x',
-				'flip_y',
-				'flip_z'
-			]},
-			{name: 'menu.transform.center', id: 'center', icon: 'filter_center_focus', children: [
-				'center_x',
-				'center_y',
-				'center_z',
-				'center_all'
-			]},
-			{name: 'menu.transform.properties', id: 'properties', icon: 'navigate_next', children: [
-				'toggle_visibility',
-				'toggle_locked',
-				'toggle_export',
-				'toggle_autouv',
-				'toggle_shade',
-				'toggle_mirror_uv'
-			]}
-
-		], {
-			condition: {modes: ['edit']}
-		})
-		new BarMenu('texture', [
-			'adjust_brightness',
-			'adjust_contrast',
-			'adjust_saturation',
-			'adjust_hue',
-			'invert_colors',
-			'adjust_curves',
-			'_',
-			'flip_texture_x',
-			'flip_texture_y',
-			'resize_texture'
-		], {
-			condition: {modes: ['paint']}
-		})
-
-		new BarMenu('display', [
-			'copy',
-			'paste',
-			'_',
-			'add_display_preset',
-			'apply_display_preset'
-		], {
-			condition: {modes: ['display']}
-		})
-		
-		new BarMenu('tools', [
-			{id: 'main_tools', icon: 'construction', name: 'Toolbox', condition: () => Project, children() {
-				let tools = Toolbox.children.filter(tool => tool instanceof Tool);
-				tools.forEach(tool => {
-					let old_condition = tool.condition;
-					tool.condition = () => {
-						tool.condition = old_condition;
-						return true;
-					}
-				})
-				let modes = Object.keys(Modes.options);
-				tools.sort((a, b) => modes.indexOf(a.modes[0]) - modes.indexOf(b.modes[0]))
-				let mode = tools[0].modes[0];
-				for (let i = 0; i < tools.length; i++) {
-					if (tools[i].modes[0] !== mode) {
-						mode = tools[i].modes[0];
-						tools.splice(i, 0, '_');
-						i++;
-					}
-				}
-				return tools;
-			}},
-			'swap_tools',
-			'_',
-			'convert_to_mesh',
-			'remove_blank_faces',
-		])
-		MenuBar.menus.filter = MenuBar.menus.tools;
-
-		new BarMenu('animation', [
-			'copy',
-			'paste',
-			'select_all',
-			'add_keyframe',
-			'add_marker',
-			'reverse_keyframes',
-			{name: 'menu.animation.flip_keyframes', id: 'flip_keyframes', condition: () => Timeline.selected.length, icon: 'flip', children: [
-				'flip_x',
-				'flip_y',
-				'flip_z'
-			]},
-			'flip_animation',
-			'delete',
-			'lock_motion_trail',
-			'_',
-			'select_effect_animator',
-			'bake_animation_into_model',
-			'_',
-			'load_animation_file',
-			'save_all_animations',
-			'export_animation_file'
-		], {
-			condition: {modes: ['animate']}
-		})
-
-
-		new BarMenu('view', [
-			'fullscreen',
-			'_',
-			'view_mode',
-			'toggle_shading',
-			'toggle_motion_trails',
-			'toggle_ground_plane',
-			'preview_checkerboard',
-			'painting_grid',
-			'_',
-			'toggle_sidebars',
-			'toggle_quad_view',
-			'hide_everything_except_selection',
-			'focus_on_selection',
-			{name: 'menu.view.screenshot', id: 'screenshot', icon: 'camera_alt', children: [
-				'screenshot_model',
-				'screenshot_app',
-				'record_model_gif',
-				'timelapse',
-			]},
-		])
-		new BarMenu('help', [
-			{name: 'menu.help.search_action', description: BarItems.action_control.description, keybind: BarItems.action_control.keybind, id: 'search_action', icon: 'search', click: ActionControl.select},
-			'_',
-			{name: 'menu.help.discord', id: 'discord', icon: 'fab.fa-discord', click: () => {
-				Blockbench.openLink('http://discord.blockbench.net');
-			}},
-			{name: 'menu.help.quickstart', id: 'discord', icon: 'fas.fa-directions', click: () => {
-				Blockbench.openLink('https://blockbench.net/quickstart/');
-			}},
-			{name: 'menu.help.wiki', id: 'wiki', icon: 'menu_book', click: () => {
-				Blockbench.openLink('https://blockbench.net/wiki/');
-			}},
-			{name: 'menu.help.report_issue', id: 'report_issue', icon: 'bug_report', click: () => {
-				Blockbench.openLink('https://github.com/JannisX11/blockbench/issues');
-			}},
-			'_',
-			'open_backup_folder',
-			'_',
-			{name: 'menu.help.developer', id: 'developer', icon: 'fas.fa-wrench', children: [
-				'reload_plugins',
-				{name: 'menu.help.plugin_documentation', id: 'plugin_documentation', icon: 'fa-book', click: () => {
-					Blockbench.openLink('https://www.blockbench.net/wiki/api/index');
-				}},
-				'open_dev_tools',
-				{name: 'menu.help.developer.reset_storage', icon: 'fas.fa-hdd', click: () => {
-					if (confirm(tl('menu.help.developer.reset_storage.confirm'))) {
-						localStorage.clear()
-						Blockbench.addFlag('no_localstorage_saving')
-						console.log('Cleared Local Storage')
-						window.location.reload(true)
-					}
-				}},
-				{name: 'menu.help.developer.unlock_projects', id: 'unlock_projects', icon: 'vpn_key', condition: () => ModelProject.all.find(project => project.locked), click() {
-					ModelProject.all.forEach(project => project.locked = false);
-				}},
-				{name: 'menu.help.developer.cache_reload', id: 'cache_reload', icon: 'cached', condition: !isApp, click: () => {
-					if('caches' in window){
-						caches.keys().then((names) => {
-							names.forEach(async (name) => {
-								await caches.delete(name)
-							})
-						})
-					}
-					window.location.reload(true)
-				}},
-				'reload',
-			]},
-			{name: 'menu.help.donate', id: 'donate', icon: 'fas.fa-hand-holding-usd', click: () => {
-				Blockbench.openLink('https://blockbench.net/donate/');
-			}},
-			'about_window'
-		])
-		MenuBar.update()
-	},
-	update() {
-		var bar = $('#menu_bar')
-		bar.children().detach()
-		this.keys = []
-		for (var menu in MenuBar.menus) {
-			if (MenuBar.menus.hasOwnProperty(menu)) {
-				if (MenuBar.menus[menu].conditionMet()) {
-					bar.append(MenuBar.menus[menu].label)
-					this.keys.push(menu)
-				}
-			}
-		}
-	},
-	addAction(action, path) {
-		if (path) {
-			path = path.split('.')
-			var menu = MenuBar.menus[path.splice(0, 1)[0]]
-			if (menu) {
-				menu.addAction(action, path.join('.'))
-			}
-		}
-	},
-	removeAction(path) {
-		if (path) {
-			path = path.split('.')
-			var menu = MenuBar.menus[path.splice(0, 1)[0]]
-			if (menu) {
-				menu.removeAction(path.join('.'))
-			}
-		}
-	}
-}
-

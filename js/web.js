@@ -1,15 +1,28 @@
+Blockbench.queries = {};
+(function() {
+	let query_string = location.search || location.hash;
+	if (query_string) {
+		query_string = decodeURIComponent(query_string.substring(1));
+		let queries = query_string.split('&');
+		queries.forEach(string => {
+			let [key, value] = string.split(/=\s*(.+)/);
+			Blockbench.queries[key] = value || true;
+		})
+	}
+})()
+
 function initializeWebApp() {
 	
 	$(document.body).on('click', 'a[href]', (event) => {
 		event.preventDefault();
-		window.open(event.target.href, '_blank');
+		window.open(event.currentTarget.href, '_blank');
 	});
 	if (location.host == 'blockbench-dev.netlify.app') {
-		let button = $(`<a href="https://www.netlify.com/" style="padding: 3px 8px; color: white; cursor: pointer; text-decoration: none;" target="_blank" rel="noopener">
+		let button = $(`<a href="https://www.netlify.com/" style="padding: 10px; color: white; cursor: pointer; text-decoration: none; display: block;" target="_blank" rel="noopener">
 				Hosted by
 				<img src="https://www.blockbench.net/_nuxt/74d4819838c06fa271394f626e8c4b16.svg" height="20px" style="vertical-align: text-top;">
 			</div>`);
-		button.insertBefore('#web_download_button');
+		button.insertBefore('#start_files');
 	}
 	if (!Blockbench.isTouch && !Blockbench.isPWA) {
 		$('#web_download_button').show()
@@ -19,6 +32,37 @@ function initializeWebApp() {
 		document.body.style.imageRendering = 'crisp-edges'
 	}
 }
+addEventListener('load', function() {
+	window.history.pushState({}, '')
+})
+addEventListener('popstate', e => {
+	if (ModelProject.all.length == 0) {
+		return;
+	}
+
+	if (open_interface) {
+		if (typeof open_interface.cancel == 'function') {
+			open_interface.cancel(event);
+		} else if (typeof open_interface == 'string' && open_dialog) {
+			$('dialog#'+open_dialog).find('.cancel_btn:not([disabled])').trigger('click');
+		}
+		
+	} else if (Interface.tab_bar.new_tab.visible) {
+		Interface.tab_bar.new_tab.close()
+		
+	} else if (open_menu) {
+		open_menu.hide()
+
+	} else if (Undo && Undo.index) {
+		Undo.undo()
+
+	} else if (!Blockbench.isMobile) {
+		return;
+	}
+
+	window.history.pushState({}, '');
+})
+
 try {
 	window.matchMedia('(display-mode: standalone)').addEventListener('change', (evt) => {
 		if (!Blockbench.isMobile) $('#web_download_button').toggle(!evt.matches);
@@ -27,16 +71,80 @@ try {
 	if (!Blockbench.isMobile) $('#web_download_button').hide();
 }
 
-function loadInfoFromURL() {
-	if (location.hash.substr(1, 8) == 'session=') {
-		EditSession.token = location.hash.substr(9);
+async function loadInfoFromURL() {
+	if (Blockbench.queries.session) {
+		EditSession.token = Blockbench.queries.session;
 		BarItems.edit_session.click();
 	}
 
-	if (location.hash.substr(1, 2) == 'm=') {
-		$.getJSON(`https://blckbn.ch/api/models/${location.hash.substr(3)}`, (model) => {
+	if (Blockbench.queries.plugins) {
+		let plugin_ids = Blockbench.queries.plugins.split(/,/);
+		let plugins = plugin_ids.map(id => Plugins.all.find(plugin => plugin.id == id))
+								.filter(p => p instanceof Plugin && p.installed == false && p.isInstallable() == true);
+		if (plugins.length) {
+			await new Promise(resolve => {
+				let form = {
+					info: {type: 'info', text: 'dialog.load_plugins_from_query.text'}
+				}
+				plugins.forEach(plugin => {
+					form[plugin.id.replace(/\./g, '_')] = {type: 'checkbox', label: plugin.name, description: plugin.description, value: true}
+				})
+				new Dialog({
+					id: 'load_plugins_from_query',
+					title: 'dialog.load_plugins_from_query.title',
+					form,
+					buttons: ['dialog.plugins.install', 'dialog.cancel'],
+					onConfirm: async function(result) {
+						let promises = [];
+						plugins.forEach(plugin => {
+							if (result[plugin.id.replace(/\./g, '_')]) {
+								promises.push(plugin.download());
+							}
+						})
+						await Promise.all(promises);
+						resolve();
+					},
+					onCancel() {
+						resolve();
+					}
+				}).show();
+			})
+		}
+	}
+
+	if (Blockbench.queries.m) {
+		$.getJSON(`https://blckbn.ch/api/models/${Blockbench.queries.m}`, (model, b) => {
 			Codecs.project.load(model, {path: ''});
+		}).fail(() => {
+			Blockbench.showMessageBox({
+				title: 'message.invalid_link',
+				message: tl('message.invalid_link.message', ['`'+Blockbench.queries.m+'`']),
+				icon: 'running_with_errors'
+			})
 		})
+	} else if (Blockbench.queries.loadtype) {
+		let file = {
+			content: Blockbench.queries.loaddata,
+			name: Blockbench.queries.loadname || 'file',
+			path: Blockbench.queries.loadname || 'file'
+		};
+		switch (Blockbench.queries.loadtype) {
+			case 'minecraft_skin': {
+				Formats.skin.setup_dialog.show();
+				Formats.skin.setup_dialog.setFormValues({
+					texture: file
+				})
+				break;
+			}
+			case 'image': {
+				loadImages([file]);
+				break;
+			}
+			case 'json': {
+				loadModelFile(file);
+				break;
+			}
+		}
 	}
 }
 
@@ -48,91 +156,5 @@ window.onbeforeunload = function() {
 	} else {
 		Blockbench.dispatchEvent('before_closing')
 		if (Project.EditSession) Project.EditSession.quit()
-	}
-}
-
-function setupMobilePanelSelector() {
-	if (Blockbench.isMobile) {
-		Interface.PanelSelectorVue = new Vue({
-			el: '#panel_selector_bar',
-			data: {
-				all_panels: Interface.Panels,
-				selected: null,
-				modifiers: Pressing.overrides
-			},
-			computed: {
-				panels() {
-					let arr = [];
-					arr.push({
-						icon: '3d_rotation',
-						name: tl('data.preview'),
-						id: 'preview'
-					})
-					for (var id in this.all_panels) {
-						let panel = this.all_panels[id];
-						if (Condition(panel.condition)) {
-							arr.push(panel)
-						}
-					}
-					return arr;
-				}
-			},
-			methods: {
-				select(panel) {
-					this.selected = panel && panel.id;
-					let overlay = $('#mobile_panel_overlay');
-					$('#left_bar').append(overlay.children());
-					if (panel instanceof Panel) {
-						overlay.append(panel.node);
-						overlay.show();
-						panel.update();
-					} else {
-						overlay.hide();
-					}
-				},
-				openKeyboardMenu(event) {
-					if (Menu.closed_in_this_click == 'mobile_keyboard') return;
-					
-					let modifiers = ['ctrl', 'shift', 'alt'];
-					let menu = new Menu('mobile_keyboard', [
-						...modifiers.map(key => {
-							let name = tl(`keys.${key}`);
-							if (Interface.status_bar.vue.modifier_keys[key].length) {
-								name += ' (' + tl(Interface.status_bar.vue.modifier_keys[key].last()) + ')';
-							}
-							return {
-								name,
-								icon: Pressing.overrides[key] ? 'check_box' : 'check_box_outline_blank',
-								click() {
-									Pressing.overrides[key] = !Pressing.overrides[key]
-								}
-							}
-						}),
-						'_',
-						{icon: 'clear_all', name: 'menu.mobile_keyboard.disable_all', condition: () => {
-							let {length} = [Pressing.overrides.ctrl, Pressing.overrides.shift, Pressing.overrides.alt].filter(key => key);
-							return length;
-						}, click() {
-							Pressing.overrides.ctrl = false; Pressing.overrides.shift = false; Pressing.overrides.alt = false;
-						}},
-					])
-					menu.open(this.$refs.mobile_keyboard_menu)
-				},
-				Condition,
-				getIconNode: Blockbench.getIconNode
-			},
-			template: `
-				<div id="panel_selector_bar">
-					<div class="panel_selector" :class="{selected: selected == null}" @click="select(null)">
-						<div class="icon_wrapper"><i class="material-icons icon">3d_rotation</i></div>
-					</div>
-					<div class="panel_selector" :class="{selected: selected == panel.id}" v-for="panel in all_panels" v-if="Condition(panel.condition)" @click="select(panel)">
-						<div class="icon_wrapper" v-html="getIconNode(panel.icon).outerHTML"></div>
-					</div>
-					<div id="mobile_keyboard_menu" @click="openKeyboardMenu($event)" ref="mobile_keyboard_menu" :class="{enabled: modifiers.ctrl || modifiers.shift || modifiers.alt}">
-						<i class="material-icons">keyboard</i>
-					</div>
-				</div>`
-		})
 	}
 }

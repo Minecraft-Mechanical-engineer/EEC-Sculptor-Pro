@@ -10,7 +10,7 @@ function getMtlFace(obj, index) {
 	} else if (!tex || typeof tex === 'string') {
 		return 'usemtl none'
 	} else {
-		return 'usemtl m_' + tex.id;
+		return 'usemtl m_' + tex.uuid;
 	}
 }
 const cube_face_normals = {
@@ -47,6 +47,7 @@ var codec = new Codec('obj', {
 		const uv = new THREE.Vector2();
 		const face = [];
 		let face_export_mode = Settings.get('obj_face_export_mode');
+		let export_scale = Settings.get('model_export_scale');
 
 		output.push('mtllib ' + (options.mtl_name||'materials.mtl') +'\n');
 
@@ -69,29 +70,22 @@ var codec = new Codec('obj', {
 
 				output.push(`o ${element.name||'cube'}`)
 
-				function addVertex(x, y, z) {
-					vertex.set(x - element.origin[0], y - element.origin[1], z - element.origin[2]);
-					vertex.applyMatrix4( mesh.matrixWorld ).divideScalar(16);
+				element.getGlobalVertexPositions().forEach((coords) => {
+					vertex.set(...coords.V3_subtract(8, 8, 8)).divideScalar(export_scale);
 					output.push('v ' + vertex.x + ' ' + vertex.y + ' ' + vertex.z);
 					nbVertex++;
-				}
-				addVertex(element.to[0]   + element.inflate, element.to[1] +	element.inflate, element.to[2]  	+ element.inflate);
-				addVertex(element.to[0]   + element.inflate, element.to[1] +	element.inflate, element.from[2]  	- element.inflate);
-				addVertex(element.to[0]   + element.inflate, element.from[1] -	element.inflate, element.to[2]  	+ element.inflate);
-				addVertex(element.to[0]   + element.inflate, element.from[1] -	element.inflate, element.from[2]  	- element.inflate);
-				addVertex(element.from[0] - element.inflate, element.to[1] +	element.inflate, element.from[2]  	- element.inflate);
-				addVertex(element.from[0] - element.inflate, element.to[1] +	element.inflate, element.to[2]  	+ element.inflate);
-				addVertex(element.from[0] - element.inflate, element.from[1] -	element.inflate, element.from[2]  	- element.inflate);
-				addVertex(element.from[0] - element.inflate, element.from[1] -	element.inflate, element.to[2]  	+ element.inflate);
+				})
 
 				for (let key in element.faces) {
 					if (element.faces[key].texture !== null) {
 						let face = element.faces[key];
+						let texture = face.getTexture();
+						let uv_size = [Project.getUVWidth(texture), Project.getUVHeight(texture)];
 						let uv_outputs = [];
-						uv_outputs.push(`vt ${face.uv[0] / Project.texture_width} ${1 - face.uv[1] / Project.texture_height}`);
-						uv_outputs.push(`vt ${face.uv[2] / Project.texture_width} ${1 - face.uv[1] / Project.texture_height}`);
-						uv_outputs.push(`vt ${face.uv[2] / Project.texture_width} ${1 - face.uv[3] / Project.texture_height}`);
-						uv_outputs.push(`vt ${face.uv[0] / Project.texture_width} ${1 - face.uv[3] / Project.texture_height}`);
+						uv_outputs.push(`vt ${face.uv[0] / uv_size[0]} ${1 - face.uv[1] / uv_size[1]}`);
+						uv_outputs.push(`vt ${face.uv[2] / uv_size[0]} ${1 - face.uv[1] / uv_size[1]}`);
+						uv_outputs.push(`vt ${face.uv[2] / uv_size[0]} ${1 - face.uv[3] / uv_size[1]}`);
+						uv_outputs.push(`vt ${face.uv[0] / uv_size[0]} ${1 - face.uv[3] / uv_size[1]}`);
 						var rot = face.rotation || 0;
 						while (rot > 0) {
 							uv_outputs.splice(0, 0, uv_outputs.pop());
@@ -115,12 +109,12 @@ var codec = new Codec('obj', {
 				for (let key in element.faces) {
 					if (element.faces[key].texture !== null) {
 						let tex = element.faces[key].getTexture()
-						if (tex && tex.uuid && !materials[tex.id]) {
-							materials[tex.id] = tex;
+						if (tex && tex.uuid && !materials[tex.uuid]) {
+							materials[tex.uuid] = tex;
 						}
 						let mtl_new = (!tex || typeof tex === 'string')
 							? 'none'
-							: 'm_' + tex.id;
+							: 'm_' + tex.uuid;
 						if (mtl_new != mtl) {
 							mtl = mtl_new;
 							output.push('usemtl '+mtl);
@@ -165,7 +159,7 @@ var codec = new Codec('obj', {
 				let vertex_keys = [];
 				function addVertex(x, y, z) {
 					vertex.set(x, y, z);
-					vertex.applyMatrix4( mesh.matrixWorld ).divideScalar(16);
+					vertex.applyMatrix4( mesh.matrixWorld ).divideScalar(export_scale);
 					output.push('v ' + vertex.x + ' ' + vertex.y + ' ' + vertex.z);
 					nbVertex++;
 				}
@@ -183,9 +177,10 @@ var codec = new Codec('obj', {
 						let face = element.faces[key];
 						let vertices = face.getSortedVertices().slice();
 						let tex = element.faces[key].getTexture();
+						let uv_size = [Project.getUVWidth(tex), Project.getUVHeight(tex)];
 
 						vertices.forEach(vkey => {
-							output.push(`vt ${face.uv[vkey][0] / Project.texture_width} ${1 - face.uv[vkey][1] / Project.texture_height}`);
+							output.push(`vt ${face.uv[vkey][0] / uv_size[0]} ${1 - face.uv[vkey][1] / uv_size[1]}`);
 							nbVertexUvs += 1;
 						})
 
@@ -194,12 +189,12 @@ var codec = new Codec('obj', {
 						vertexnormals.push('vn ' + normal.x + ' ' + normal.y + ' ' + normal.z );
 						nbNormals += 1;
 
-						if (tex && tex.uuid && !materials[tex.id]) {
-							materials[tex.id] = tex;
+						if (tex && tex.uuid && !materials[tex.uuid]) {
+							materials[tex.uuid] = tex;
 						}
 						let mtl_new = (!tex || typeof tex === 'string')
 							? 'none'
-							: 'm_' + tex.id;
+							: 'm_' + tex.uuid;
 						if (mtl_new != mtl) {
 							mtl = mtl_new;
 							faces.push('usemtl '+mtl);
@@ -273,7 +268,7 @@ var codec = new Codec('obj', {
 						vertex.y = vertices.getY( i );
 						vertex.z = vertices.getZ( i ); // transform the vertex to world space
 
-						vertex.applyMatrix4( mesh.matrixWorld ).divideScalar(16); // transform the vertex to export format
+						vertex.applyMatrix4( mesh.matrixWorld ).divideScalar(export_scale); // transform the vertex to export format
 
 						output.push('v ' + vertex.x + ' ' + vertex.y + ' ' + vertex.z);
 
@@ -317,8 +312,8 @@ var codec = new Codec('obj', {
 				// material
 				for (let key in element.faces) {
 					let tex = element.faces[key].getTexture()
-					if (tex && tex.uuid && !materials[tex.id]) {
-						materials[tex.id] = tex
+					if (tex && tex.uuid && !materials[tex.uuid]) {
+						materials[tex.uuid] = tex
 					}
 				}
 
@@ -380,11 +375,15 @@ var codec = new Codec('obj', {
 		  
 		var mtlOutput = '# Made in Blockbench '+appVersion+'\n';;
 		
-		for (var key in materials) {
+		for (let key in materials) {
 			if (materials.hasOwnProperty(key) && materials[key]) {
-				var tex = materials[key];
+				let tex = materials[key];
+				let name = tex.name;
+				if (name.substr(-4) !== '.png') {
+					name += '.png';
+				}
 				mtlOutput += 'newmtl m_' +key+ '\n'
-				mtlOutput += `map_Kd ${tex.name} \n`;
+				mtlOutput += `map_Kd ${name}\n`;
 			}
 		}
 		mtlOutput += 'newmtl none'

@@ -1,5 +1,15 @@
+
 class Keybind {
-	constructor(keys) {
+	/**
+	 * Create a keybind
+	 * @param {object} keys Set up the default keys that need to be pressed
+	 * @param {number|string} keys.key Main key. Check keycode.info to find out the numeric value, or simply use letters for letter keys
+	 * @param {boolean} keys.ctrl Control key. On MacOS this automatically works for Cmd
+	 * @param {boolean} keys.shift Shift key
+	 * @param {boolean} keys.alt Alt key
+	 * @param {boolean} keys.meta Meta key
+	 */
+	constructor(keys, variations) {
 		this.key 	= -1;
 		this.ctrl 	= false;
 		this.shift 	= false;
@@ -17,10 +27,16 @@ class Keybind {
 			}
 			this.set(keys)
 		}
+		if (variations) {
+			this.variations = {};
+			for (let option in variations) {
+				this.variations[option] = variations[option];
+			}
+		}
 	}
 	set(keys, dflt) {
 		if (!keys || typeof keys !== 'object') return this;
-		this.key = keys.key
+		this.key = typeof keys.key == 'number' ? keys.key : -1;
 		if (this.ctrl 	!== null) this.ctrl = (keys.ctrl === null) ? null : (keys.ctrl 	== true);
 		if (this.shift 	!== null) this.shift= (keys.shift=== null) ? null : (keys.shift == true);
 		if (this.alt 	!== null) this.alt 	= (keys.alt  === null) ? null : (keys.alt 	== true);
@@ -30,6 +46,11 @@ class Keybind {
 			if (dflt.shift 	== null) this.shift = null;
 			if (dflt.alt 	== null) this.alt = null;
 			if (dflt.meta 	== null) this.meta = null;
+		}
+		if (keys.variations && this.variations) {
+			for (let option in keys.variations) {
+				this.variations[option] = keys.variations[option];
+			}
 		}
 		this.label = this.getText()
 		TickUpdates.keybind_conflicts = true;
@@ -47,7 +68,7 @@ class Keybind {
 	}
 	save(save) {
 		if (this.action) {
-			var obj = {
+			let obj = {
 				key: this.key
 			}
 			if (this.ctrl)	 obj.ctrl = true
@@ -55,7 +76,15 @@ class Keybind {
 			if (this.alt)	 obj.alt = true
 			if (this.meta)	 obj.meta = true
 
-			Keybinds.stored[this.action] = obj
+			if (this.variations && Object.keys(this.variations)) {
+				obj.variations = {};
+				for (let option in this.variations) {
+					obj.variations[option] = this.variations[option];
+				}
+			}
+
+			let key = this.sub_id ? (this.action + '.' + this.sub_id) : this.action;
+			Keybinds.stored[key] = obj
 			if (save !== false) {
 				Keybinds.save();
 				TickUpdates.keybind_conflicts = true;
@@ -67,7 +96,7 @@ class Keybind {
 		}
 		return this;
 	}
-	setAction(id) {
+	setAction(id, sub_id) {
 		var action = BarItems[id]
 		if (!action) {
 			action = Keybinds.extra[id]
@@ -75,7 +104,9 @@ class Keybind {
 		if (!action) {
 			return;
 		}
-		this.action = id
+		this.action = id;
+		this.sub_id = sub_id;
+
 		if (!Keybinds.structure[action.category]) {
 			Keybinds.structure[action.category] = {
 				actions: [],
@@ -85,7 +116,7 @@ class Keybind {
 				conflict: false,
 			}
 		}
-		Keybinds.structure[action.category].actions.push(action)
+		Keybinds.structure[action.category].actions.safePush(action)
 		return this;
 	}
 	getText(colorized = false) {
@@ -159,11 +190,26 @@ class Keybind {
 			case  19: return 'pause';
 			case 1001: return 'mousewheel';
 
-			case 187: return '+';
+			case 106: return tl('keys.numpad', ['*']);
+			case 107: return tl('keys.numpad', ['+']);
+			case 108: return tl('keys.numpad', ['+']);
+			case 109: return tl('keys.numpad', ['-']);
+			case 110: return tl('keys.numpad', [',']);
+			case 111: return tl('keys.numpad', ['/']);
+
 			case 188: return ',';
 			case 190: return '.';
 			case 189: return '-';
-			case 191: return '#';
+			case 191: return '/';
+			case 219: return '[';
+			case 221: return ']';
+			case 186: return ';';
+			case 222: return "'";
+			case 220: return '\\';
+			case 187: return '=';
+			case 226: return '\\';
+			case 192: return '`';
+			//case 187: return '+';
 			default : return String.fromCharCode(key).toLowerCase();
 		}
 	}
@@ -184,13 +230,34 @@ class Keybind {
 		return this;
 	}
 	isTriggered(event) {
+		let modifiers_used = new Set();
+		if (this.variations) {
+			for (let option in this.variations) {
+				modifiers_used.add(this.variations[option]);
+			}
+		}
 		return (
 			(this.key 	=== event.which	|| (this.key == 1001 && event instanceof MouseEvent)) &&
-			(this.ctrl 	=== (event.ctrlKey 	|| Pressing.overrides.ctrl) || this.ctrl === null 	) &&
-			(this.shift === (event.shiftKey || Pressing.overrides.shift)|| this.shift === null	) &&
-			(this.alt 	=== (event.altKey 	|| Pressing.overrides.alt) 	|| this.alt === null 	) &&
-			(this.meta 	=== event.metaKey								|| this.meta === null 	)
+			(this.ctrl 	=== (event.ctrlKey 	|| Pressing.overrides.ctrl) || this.ctrl === null	|| modifiers_used.has('ctrl') 	) &&
+			(this.shift === (event.shiftKey || Pressing.overrides.shift)|| this.shift === null	|| modifiers_used.has('shift')	) &&
+			(this.alt 	=== (event.altKey 	|| Pressing.overrides.alt) 	|| this.alt === null	|| modifiers_used.has('alt') 	) &&
+			(this.meta 	=== event.metaKey								|| this.meta === null	|| modifiers_used.has('ctrl') 	)
 		)
+	}
+	additionalModifierTriggered(event, variation) {
+		if (!this.variations) return;
+		for (let option in this.variations) {
+			if (variation && option != variation) continue;
+			let key = this.variations[option];
+			if (
+				(key == 'ctrl' && (event.ctrlOrCmd || Pressing.overrides.ctrl)) ||
+				(key == 'shift' && (event.shiftKey || Pressing.overrides.shift)) ||
+				(key == 'alt' && (event.altKey || Pressing.overrides.alt)) ||
+				(key == 'meta' && (event.metaKey || Pressing.overrides.meta))
+			) {
+				return variation ? true : option;
+			}
+		}
 	}
 	record() {
 		var scope = this;
@@ -205,7 +272,7 @@ class Keybind {
 			document.removeEventListener('keyup', onActivate)
 			document.removeEventListener('keydown', onActivateDown)
 			overlay.off('mousedown', onActivate)
-			overlay.off('mousewheel', onActivate)
+			overlay.off('wheel', onActivate)
 			overlay.off('keydown keypress keyup click click dblclick mouseup mousewheel', preventDefault)
 			if (event instanceof KeyboardEvent == false && event.target && event.target.tagName === 'BUTTON') return;
 
@@ -224,8 +291,9 @@ class Keybind {
 
 			scope.stopRecording()
 		}
+		let mac_modifiers = ['Alt', 'Shift', 'Control', 'Meta'];
 		function onActivateDown(event) {
-			if (event.metaKey && event.which != 91) {
+			if (event.metaKey && !mac_modifiers.includes(event.key)) {
 				onActivate(event)
 			}
 		}
@@ -236,7 +304,7 @@ class Keybind {
 		document.addEventListener('keyup', onActivate)
 		document.addEventListener('keydown', onActivateDown)
 		overlay.on('mousedown', onActivate)
-		overlay.on('mousewheel', onActivate)
+		overlay.on('wheel', onActivate)
 
 		overlay.on('keydown keypress keyup click click dblclick mouseup mousewheel', preventDefault)
 		return this;
@@ -255,18 +323,13 @@ Keybinds.loadKeymap = function(id, from_start_screen = false) {
 	let controls_only = from_start_screen && (id == 'default' || id == 'mouse');
 	let answer = controls_only || confirm(tl('message.load_keymap'));
 	if (!answer) return;
-	let preset = KeymapPresets[id];
+	let preset = KeymapPresets[id] || {keys: {}};
 
-
-	if (!controls_only)
-		Keybinds.actions.forEach(item => {
-			if (!item.keybind) return;
-
-			if (preset && preset.keys[item.id] !== undefined) {
-				let keys = preset.keys[item.id]
-
+	if (!controls_only) {
+		function applyKeybinding(keys, keybind, default_keybind) {
+			if (keys) {
 				if (keys === null) {
-					item.keybind.clear();
+					keybind.clear();
 				} else if (keys) {
 					if (isApp && Blockbench.platform == 'darwin' && keys.ctrl && !keys.meta) {
 						keys.meta = true;
@@ -275,37 +338,49 @@ Keybinds.loadKeymap = function(id, from_start_screen = false) {
 					if (typeof keys.key == 'string') {
 						keys.key = keys.key.toUpperCase().charCodeAt(0);
 					}
-					item.keybind.set(keys).save(false);
+					keybind.set(keys).save(false);
 				}
 			} else {
-				if (item.default_keybind) {
-					item.keybind.set(item.default_keybind);
+				if (default_keybind) {
+					keybind.set(default_keybind);
 				} else {
-					item.keybind.clear();
+					keybind.clear();
+				}
+			}
+		}
+		Keybinds.actions.forEach(item => {
+			if (!item.keybind) return;
+
+			applyKeybinding(preset.keys[item.id], item.keybind, item.default_keybind);
+			if (item.sub_keybinds) {
+				for (let key in item.sub_keybinds) {
+					applyKeybinding(
+						preset.keys[item.id + '.' + key],
+						item.sub_keybinds[key].keybind,
+						item.sub_keybinds[key].default_keybind
+					);
 				}
 			}
 
 			item.keybind.save(false);
 		})
+	}
 
 	if (id == 'mouse') {
 		Keybinds.extra.preview_rotate.keybind.set({key: 2}).save(false);
 		Keybinds.extra.preview_drag.keybind.set({key: 2, shift: true}).save(false);
 		Keybinds.extra.preview_zoom.keybind.set({key: 2, ctrl: true}).save(false);
 		Keybinds.extra.preview_area_select.keybind.set({key: 1}).save(false);
+		Keybinds.extra.paint_secondary_color.keybind.set({key: 3}).save(false);
 	}
 
 	Keybinds.save();
 	TickUpdates.keybind_conflicts = true;
 	Blockbench.showQuickMessage('message.keymap_loaded', 1600);
+	return true;
 }
 Keybinds.no_overlap = function(k1, k2) {
-	if (typeof k1.condition !== 'object' || typeof k2.condition !== 'object') return false;
-	if (k1.condition.modes && k2.condition.modes && k1.condition.modes.overlap(k2.condition.modes) == 0) return true;
-	if (k1.condition.tools && k2.condition.tools && k1.condition.tools.overlap(k2.condition.tools) == 0) return true;
-	if (k1.condition.formats && k2.condition.formats && k1.condition.formats.overlap(k2.condition.formats) == 0) return true;
-	if (k1.condition.features && k2.condition.features && k1.condition.features.overlap(k2.condition.features) == 0) return true;
-	return false;
+	return Condition.mutuallyExclusive(k1.condition, k2.condition);
 }
 function updateKeybindConflicts() {
 	for (var key in Keybinds.structure) {
@@ -337,8 +412,10 @@ function updateKeybindConflicts() {
 	if (Keybinds.dialog && Keybinds.dialog.sidebar.node) {
 		let node = Keybinds.dialog.sidebar.node;
 		for (var key in Keybinds.structure) {
-			let page = node.querySelector(`.dialog_sidebar_pages li[page="${key}"]`)
-			page.classList.toggle('error', Keybinds.structure[key].conflict);
+			if (Keybinds.dialog.sidebar.pages[key]) {
+				let page = node.querySelector(`.dialog_sidebar_pages li[page="${key}"]`)
+				page.classList.toggle('error', Keybinds.structure[key].conflict);
+			}
 		}
 	}
 }
@@ -434,7 +511,7 @@ onVueSetup(function() {
 		id: 'keybindings',
 		title: 'dialog.settings.keybinds',
 		singleButton: true,
-		width: 920,
+		width: 800,
 		title_menu: new Menu([
 			'settings_window',
 			'keybindings_window',
@@ -458,16 +535,34 @@ onVueSetup(function() {
 				structure: Keybinds.structure,
 				open_category: 'navigate',
 				search_term: '',
+				modifier_options: {
+					ctrl: tl(Blockbench.platform == 'darwin' ? 'keys.meta' : 'keys.ctrl'),
+					shift: tl('keys.shift'),
+					alt: tl('keys.alt'),
+					'': '-',
+				} 
 			}},
 			methods: {
-				record(item) {
-					if (!item.keybind) {
-						item.keybind = new Keybind()
+				record(item, sub_id) {
+					if (sub_id) {
+						item.sub_keybinds[sub_id].keybind.record();
+
+					} else {
+						if (!item.keybind) item.keybind = new Keybind();
+						item.keybind.record();
 					}
-					item.keybind.record()
 				},
-				reset(item) {
-					if (item.keybind) {
+				reset(item, sub_id) {
+					if (sub_id) {
+						let sub_keybind = item.sub_keybinds[sub_id];
+						if (sub_keybind.default_keybind) {
+							sub_keybind.keybind.set(sub_keybind.default_keybind);
+						} else {
+							sub_keybind.keybind.clear();
+						}
+						sub_keybind.keybind.save(true);
+
+					} else if (item.keybind) {
 						if (item.default_keybind) {
 							item.keybind.set(item.default_keybind);
 						} else {
@@ -476,8 +571,11 @@ onVueSetup(function() {
 						item.keybind.save(true);
 					}
 				},
-				clear(item) {
-					if (item.keybind) {
+				clear(item, sub_id) {
+					if (sub_id) {
+						item.sub_keybinds[sub_id].keybind.clear().save(true);
+
+					} else if (item.keybind) {
 						item.keybind.clear().save(true)
 					}
 				},
@@ -489,12 +587,24 @@ onVueSetup(function() {
 						
 					}
 					category.open = !category.open
-				}
+				},
+				hasSubKeybinds(item) {
+					return item.sub_keybinds && typeof item.sub_keybinds === 'object' && Object.keys(item.sub_keybinds).length > 0;
+				},
+				hasVariationConflict(keybind, variation_key) {
+					return keybind[keybind.variations[variation_key]];
+				},
+				getVariationText(action, variation) {
+					return tl(action.variations?.[variation]?.name, null, variation);
+				},
+				getVariationDescription(action, variation) {
+					return action.variations?.[variation]?.description ? tl(action.variations[variation].description, null, '') : '';
+				},
 			},
 			computed: {
 				list() {
 					if (this.search_term) {
-						var keywords = this.search_term.replace(/_/g, ' ').split(' ');
+						var keywords = this.search_term.toLowerCase().replace(/_/g, ' ').split(' ');
 						var actions = [];
 
 						for (var action of Keybinds.actions) {
@@ -503,12 +613,21 @@ onVueSetup(function() {
 								var missmatch = false;
 								for (var word of keywords) {
 									if (
+										!missmatch &&
 										!action.name.toLowerCase().includes(word) &&
 										!action.id.toLowerCase().includes(word) &&
-										!action.keybind.label.toLowerCase().includes(word)
+										!action.keybind.label.toLowerCase().includes(word) 
 									) {
 										missmatch = true;
 									}
+									if (missmatch && action.sub_keybinds) {
+										for (let key in action.sub_keybinds) {
+											if (action.sub_keybinds[key].name.toLowerCase().includes(word)) {
+												missmatch = false;
+											}
+										}
+									}
+									if (missmatch) break;
 								}
 								if (!missmatch) {
 									actions.push(action)
@@ -536,20 +655,44 @@ onVueSetup(function() {
 
 					<ul id="keybindlist">
 						<li v-for="action in list">
-							<div v-bind:title="action.description">{{action.name}}</div>
-							<div class="keybindslot" :class="{conflict: action.keybind && action.keybind.conflict}" @click.stop="record(action)" v-html="action.keybind ? action.keybind.getText(true) : ''"></div>
-							<div class="tool" v-on:click="reset(action)" title="${tl('keybindings.reset')}">
-								<i class="material-icons">replay</i>
+							<div class="keybind_line">
+								<div :title="action.description"><span>{{action.name}}</span><span class="keybind_guide_line" /></div>
+								<div class="keybindslot" :class="{conflict: action.keybind && action.keybind.conflict}" @click.stop="record(action)" v-html="action.keybind ? action.keybind.getText(true) : ''"></div>
+
+								<div class="tool" v-on:click="reset(action)" title="${tl('keybindings.reset')}"><i class="material-icons">replay</i></div>
+								<div class="tool" v-on:click="clear(action)" title="${tl('keybindings.clear')}"><i class="material-icons">clear</i></div>
 							</div>
-							<div class="tool" v-on:click="clear(action)" title="${tl('keybindings.clear')}">
-								<i class="material-icons">clear</i>
-							</div>
+
+							<ul class="keybind_item_variations" v-if="action.keybind.variations">
+								<li v-for="(value, option_key) in action.keybind.variations">
+									<label :title="getVariationDescription(action, option_key)">{{ getVariationText(action, option_key) }}</label>
+									<select-input v-model="action.keybind.variations[option_key]" @input="action.keybind.save(true)" :options="modifier_options" />
+									<i v-if="hasVariationConflict(action.keybind, option_key)" class="material-icons icon keybind_variation_conflict" title="${tl('keybindings.variation_conflict')}">warning</i>
+								</li>
+							</ul>
+
+							<ul class="keybind_item_sub_keybinds" v-if="hasSubKeybinds(action)">
+								<li v-for="(sub_keybind, sub_id) in action.sub_keybinds" class="keybind_line keybind_line__sub" :key="sub_id">
+									<div><span>{{ sub_keybind.name }}</span><span class="keybind_guide_line" /></div>
+									<div class="keybindslot"
+										:class="{conflict: sub_keybind.keybind && sub_keybind.keybind.conflict}"
+										@click.stop="record(action, sub_id)"
+										v-html="sub_keybind.keybind ? sub_keybind.keybind.getText(true) : ''"
+									></div>
+		
+									<div class="tool" v-on:click="reset(action, sub_id)" title="${tl('keybindings.reset')}"><i class="material-icons">replay</i></div>
+									<div class="tool" v-on:click="clear(action, sub_id)" title="${tl('keybindings.clear')}"><i class="material-icons">clear</i></div>
+								</li>
+							</ul>
 						</li>
 					</ul>
 				</div>`
 		},
 		onButton() {
-			Settings.save();
+			Keybinds.save();
+		},
+		onOpen() {
+			updateKeybindConflicts();
 		}
 	})
 })
@@ -561,9 +704,14 @@ window.addEventListener('blur', event => {
 			delete Toolbox.original;
 		}
 	}
+	let changed = Pressing.shift || Pressing.alt || Pressing.ctrl;
+	let before = changed && {shift: Pressing.shift, alt: Pressing.alt, ctrl: Pressing.ctrl};
 	Pressing.shift = false;
 	Pressing.alt = false;
 	Pressing.ctrl = false;
+	if (changed) {
+		Blockbench.dispatchEvent('update_pressed_modifier_keys', {before, now: Pressing, event});
+	}
 })
 
 window.addEventListener('focus', event => {
@@ -589,31 +737,54 @@ window.addEventListener('focus', event => {
 })
 
 function getFocusedTextInput() {
-	return document.querySelector('input[type="text"]:focus, input[type="number"]:focus, *[contenteditable="true"]:focus, textarea:focus');
+	let element = document.activeElement;
+	if (element.nodeName == 'TEXTAREA' || (element.nodeName == 'INPUT' && ['number', 'text'].includes(element.type)) || element.isContentEditable) {
+		return element;
+	}
 }
 
 addEventListeners(document, 'keydown mousedown', function(e) {
 	if (Keybinds.recording || e.which < 4) return;
 	//Shift
+
+	
+	let modifiers_changed = Pressing.shift != e.shiftKey || Pressing.alt != e.altKey || Pressing.ctrl != e.ctrlKey;
+	let before = modifiers_changed && {shift: Pressing.shift, alt: Pressing.alt, ctrl: Pressing.ctrl};
 	Pressing.shift = e.shiftKey;
 	Pressing.alt = e.altKey;
 	Pressing.ctrl = e.ctrlKey;
+	if (modifiers_changed) {
+		Blockbench.dispatchEvent('update_pressed_modifier_keys', {before, now: Pressing, event});
+	}
+
 	if (e.which === 16) {
 		showShiftTooltip()
 	}
 
-	var used = false;
-	var input_focus = getFocusedTextInput()
+	let used = false;
+	let used_for_input_action;
+	let input_focus = getFocusedTextInput()
+
+	// Fix #1427
+	if (e.code == 'PageUp' || e.code == 'PageDown') {
+		e.preventDefault();
+	}
 
 	if (input_focus) {
 		//User Editing Anything
 
 		//Tab
-		if (e.which == 9 && !open_dialog) {
-			var all_inputs = $('.tab_target:visible:not(.prism-editor-wrapper), .prism-editor-wrapper.tab_target:visible > pre[contenteditable="true"]')
-			var index = all_inputs.index(input_focus)+1;
-			if (index >= all_inputs.length) index = 0;
-			var next = $(all_inputs.get(index))
+		if (e.which == 9 && !Dialog.open && !document.querySelector('.capture_tab_key:focus-within')) {
+			let all_visible_inputs = [];
+			var all_inputs = document.querySelectorAll('.tab_target:not(.prism-editor-component), .prism-editor-component.tab_target > .prism-editor-wrapper > pre[contenteditable="true"]')
+			all_inputs.forEach(input => {
+				if (input.isConnected && input.offsetParent && $(input).is(':visible')) {
+					all_visible_inputs.push(input);
+				}
+			})
+			var index = all_visible_inputs.indexOf(input_focus)+1;
+			if (index >= all_visible_inputs.length) index = 0;
+			var next = $(all_visible_inputs[index])
 
 			if (next.length) {
 				if (next.hasClass('cube_name')) {
@@ -627,9 +798,11 @@ addEventListeners(document, 'keydown mousedown', function(e) {
 					}
 
 				} else if (next.hasClass('nslide')) {
-					setTimeout(() => {
-						BarItems[next.attr('n-action')].startInput(e);
-					}, 50)
+					let n_action = next.attr('n-action');
+					let slider = BarItems[n_action] || UVEditor.sliders[n_action.replace('uv_slider_', '')];
+					if (slider) {
+						setTimeout(() => slider.startInput(e), 50);
+					}
 				} else {
 					event.preventDefault();
 					next.trigger('focus').trigger('click');
@@ -641,10 +814,11 @@ addEventListeners(document, 'keydown mousedown', function(e) {
 		if (Blockbench.hasFlag('renaming')) {
 			if (Keybinds.extra.confirm.keybind.isTriggered(e)) {
 				stopRenameOutliner()
+				return;
 			} else if (Keybinds.extra.cancel.keybind.isTriggered(e)) {
 				stopRenameOutliner(false)
+				return;
 			}
-			return;
 		}
 		if ($('input#chat_input:focus').length && Project.EditSession) {
 			if (Keybinds.extra.confirm.keybind.isTriggered(e)) {
@@ -652,10 +826,13 @@ addEventListeners(document, 'keydown mousedown', function(e) {
 				return;
 			}
 		}
-		if ($('pre.prism-editor__code:focus').length) return;
 		if (Keybinds.extra.confirm.keybind.isTriggered(e) || Keybinds.extra.cancel.keybind.isTriggered(e)) {
 			$(document).trigger('click')
 		}
+		used_for_input_action = !e.ctrlKey && !e.metaKey;
+		if ('zyxcva'.includes(e.key) || (e.keyCode >= 37 && e.keyCode <= 40)) used_for_input_action = true;
+
+		if ($('pre.prism-editor__code:focus').length && used_for_input_action) return;
 	}
 	let captured = false;
 	let results = Blockbench.dispatchEvent('press_key', {
@@ -684,38 +861,67 @@ addEventListeners(document, 'keydown mousedown', function(e) {
 	} else if (Keybinds.extra.cancel.keybind.isTriggered(e) && (Transformer.dragging)) {
 		Transformer.cancelMovement(e, false);
 		updateSelection();
+	} else if (KnifeToolContext.current) {
+		if (Keybinds.extra.cancel.keybind.isTriggered(e)) {
+			KnifeToolContext.current.cancel();
+		} else if (Keybinds.extra.confirm.keybind.isTriggered(e)) {
+			KnifeToolContext.current.apply();
+		}
 	}
 	//Keybinds
-	if (!input_focus) {
+	if (!input_focus || !used_for_input_action) {
 		Keybinds.actions.forEach(function(action) {
-			if (
-				action.keybind &&
-				(!open_dialog || action.work_in_dialog) &&
-				typeof action.trigger === 'function' &&
-				action.keybind.isTriggered(e)
-			) {
-				if (action.trigger(e)) {
-					used = true
+			if (!Dialog.open || action.work_in_dialog) {
+				// Condition for actions is not checked here because tools can be triggered from different modes under certain circumstances, which switches the mode
+				if (action.keybind && typeof action.trigger === 'function' && action.keybind.isTriggered(e)) {
+					if (action.trigger(e)) used = true
+				}
+				if (action.sub_keybinds && Condition(action.condition)) {
+					for (let sub_id in action.sub_keybinds) {
+						let sub = action.sub_keybinds[sub_id];
+						if (sub.keybind.isTriggered(e)) {
+							let value_before = action.value;
+							sub.trigger(e)
+							used = true;
+							if (action instanceof BarSelect && value_before != action.value) break;
+						}
+					}
 				}
 			}
 		})
+		if (!used && !Dialog.open) {
+			for (let tool of Tool.all) {
+				if (tool.keybind && typeof tool.trigger === 'function' && tool.keybind.isTriggered(e)) {
+					if (tool.switchModeAndSelect(e)) break;
+				}
+			}
+		}
 	}
-	//Dialog
-	if (open_dialog) {
+	// Menu
+	if (open_menu) {
+		used = open_menu.keyNavigate(e)||used
+
+	// Dialog
+	} else if (Dialog.open) {
+		let dialog = Dialog.open;
+		for (let id in (dialog.keyboard_actions || {})) {
+			let action = dialog.keyboard_actions[id];
+			if (Condition(action.condition, dialog) && action.keybind.isTriggered(e)) {
+				action.run.call(dialog, e);
+			}
+		}
 		if ($('textarea:focus').length === 0) {
 			if (Keybinds.extra.confirm.keybind.isTriggered(e)) {
-				open_interface.confirm(e);
+				if (input_focus) {
+					input_focus.blur();
+				}
+				Dialog.open.confirm(e);
 				used = true
 			} else if (Keybinds.extra.cancel.keybind.isTriggered(e)) {
-				open_interface.cancel(e);
+				Dialog.open.cancel(e);
 				used = true
 			}
 		}
-	//Menu
-	} else if (open_menu) {
-
-		used = open_menu.keyNavigate(e)||used
-
 	} else if (open_interface && typeof open_interface == 'object' && open_interface.hide) {
 		if (Keybinds.extra.confirm.keybind.isTriggered(e)) {
 			open_interface.confirm(e)
@@ -723,6 +929,33 @@ addEventListeners(document, 'keydown mousedown', function(e) {
 		} else if (Keybinds.extra.cancel.keybind.isTriggered(e)) {
 			open_interface.hide(e)
 			used = true
+		}
+	} else if (ReferenceImageMode.active) {
+		if (Keybinds.extra.confirm.keybind.isTriggered(e) || Keybinds.extra.cancel.keybind.isTriggered(e)) {
+			ReferenceImageMode.deactivate();
+			used = true;
+		}
+	} else if (Prop.active_panel == 'uv' && Modes.paint && Texture.selected && Texture.selected.selection.is_custom) {
+		if (Keybinds.extra.cancel.keybind.isTriggered(e)) {
+			SharedActions.run('unselect_all', e);
+			used = true;
+		}
+	} else if (Toolbox.selected.id == 'copy_paste_tool' && UVEditor.texture && Painter.selection.canvas && e.which >= 37 && e.which <= 40) {
+		switch (e.which) {
+			case 37: Painter.selection.x -= 1; break;//<
+			case 38: Painter.selection.y -= 1; break;//UP
+			case 39: Painter.selection.x += 1; break;//>
+			case 40: Painter.selection.y += 1; break;//DOWN
+		}
+		Painter.selection.x = Math.clamp(Painter.selection.x, 1-Painter.selection.canvas.width,  UVEditor.texture.width -1)
+		Painter.selection.y = Math.clamp(Painter.selection.y, 1-Painter.selection.canvas.height, UVEditor.texture.height-1)
+		UVEditor.updatePastingOverlay();
+		e.preventDefault();
+
+	} else if (Modes.paint && TextureLayer.selected && TextureLayer.selected.in_limbo) {
+		if (Keybinds.extra.confirm.keybind.isTriggered(e)) {
+			TextureLayer.selected.resolveLimbo(false);
+			used = true;
 		}
 	}
 	if (ActionControl.open) {
@@ -738,7 +971,7 @@ document.addEventListener('wheel', (e) => {
 	Keybinds.actions.forEach(function(action) {
 		if (
 			action.keybind &&
-			(!open_dialog || action.work_in_dialog) &&
+			(!Dialog.open || action.work_in_dialog) &&
 			typeof action.trigger === 'function' &&
 			action.keybind.isTriggered(e)
 		) {
@@ -757,11 +990,20 @@ $(document).keyup(function(e) {
 	if (Pressing.alt && ActionControl.open) {
 		ActionControl.vue.$forceUpdate()
 	}
+	// Firefox-specific fix for suppressing the menu bar
+	if(e.which == 18) {
+		e.preventDefault();
+	}
 	if (e.which === 18 && Toolbox.original && Toolbox.original.alt_tool) {
 		Toolbox.original.select()
 		delete Toolbox.original;
 	}
-	Pressing.shift = false;
-	Pressing.alt = false;
-	Pressing.ctrl = false;
+	let changed = Pressing.shift || Pressing.alt || Pressing.ctrl;
+	let before = changed && {shift: Pressing.shift, alt: Pressing.alt, ctrl: Pressing.ctrl};
+	Pressing.shift = e.shiftKey;
+	Pressing.alt = e.altKey;
+	Pressing.ctrl = e.ctrlKey;
+	if (changed) {
+		Blockbench.dispatchEvent('update_pressed_modifier_keys', {before, now: Pressing, event});
+	}
 })

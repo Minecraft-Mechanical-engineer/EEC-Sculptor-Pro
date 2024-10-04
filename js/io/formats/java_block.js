@@ -22,14 +22,14 @@ var codec = new Codec('java_block', {
 		if (options === undefined) options = {}
 		var clear_elements = []
 		var textures_used = []
-		var element_index_lut = []
+		var element_indices = []
 		var overflow_cubes = [];
 
 		function computeCube(s) {
 			if (s.export == false) return;
 			//Create Element
 			var element = {}
-			element_index_lut[Cube.all.indexOf(s)] = clear_elements.length
+			element_indices[Cube.all.indexOf(s)] = clear_elements.length
 
 			if ((options.cube_name !== false && !settings.minifiedout.value) || options.cube_name === true) {
 				if (s.name !== 'cube') {
@@ -47,7 +47,10 @@ var codec = new Codec('java_block', {
 			if (s.shade === false) {
 				element.shade = false
 			}
-			if (!s.rotation.allEqual(0) || !s.origin.allEqual(0)) {
+			if (s.light_emission) {
+				element.light_emission = s.light_emission;
+			}
+			if (!s.rotation.allEqual(0) || (!s.origin.allEqual(0) && settings.java_export_pivots.value)) {
 				var axis = s.rotationAxis()||'y';
 				element.rotation = new oneLiner({
 					angle: s.rotation[getAxisNumber(axis)],
@@ -113,17 +116,19 @@ var codec = new Codec('java_block', {
 			}
 			element.faces = e_faces
 
-			function inVd(n) {
-				return n < -16 || n > 32; 
-			}
-			if (inVd(element.from[0]) ||
-				inVd(element.from[1]) ||
-				inVd(element.from[2]) ||
-				inVd(element.to[0]) ||
-				inVd(element.to[1]) ||
-				inVd(element.to[2])
-			) {
-				overflow_cubes.push(s);
+			if (Format.cube_size_limiter) {
+				function inVd(n) {
+					return n < -16 || n > 32; 
+				}
+				if (inVd(element.from[0]) ||
+					inVd(element.from[1]) ||
+					inVd(element.from[2]) ||
+					inVd(element.to[0]) ||
+					inVd(element.to[1]) ||
+					inVd(element.to[2])
+				) {
+					overflow_cubes.push(s);
+				}
 			}
 			if (Object.keys(element.faces).length) {
 				clear_elements.push(element)
@@ -190,14 +195,17 @@ var codec = new Codec('java_block', {
 		}
 
 		var blockmodel = {}
-		if (checkExport('comment', settings.credit.value)) {
-			blockmodel.credit = settings.credit.value
+		if (checkExport('comment', Project.credit || settings.credit.value)) {
+			blockmodel.credit = Project.credit || settings.credit.value
 		}
 		if (checkExport('parent', Project.parent != '')) {
 			blockmodel.parent = Project.parent
 		}
 		if (checkExport('ambientocclusion', Project.ambientocclusion === false)) {
 			blockmodel.ambientocclusion = false
+		}
+		if (Project.unhandled_root_fields.render_type) {
+			blockmodel.render_type = Project.unhandled_root_fields.render_type;
 		}
 		if (Project.texture_width !== 16 || Project.texture_height !== 16) {
 			blockmodel.texture_size = [Project.texture_width, Project.texture_height]
@@ -211,8 +219,9 @@ var codec = new Codec('java_block', {
 		if (checkExport('front_gui_light', Project.front_gui_light)) {
 			blockmodel.gui_light = 'front';
 		}
-		if (checkExport('overrides', Project.overrides)) {
-			blockmodel.overrides = Project.overrides;
+		if (checkExport('overrides', Project.overrides instanceof Array && Project.overrides.length)) {
+			Project.overrides.forEach(override => delete override._uuid)
+			blockmodel.overrides = Project.overrides.map(override => new oneLiner(override));
 		}
 		if (checkExport('display', Object.keys(Project.display_settings).length >= 1)) {
 			var new_display = {}
@@ -229,7 +238,28 @@ var codec = new Codec('java_block', {
 			}
 		}
 		if (checkExport('groups', (settings.export_groups.value && Group.all.length))) {
-			groups = compileGroups(false, element_index_lut)
+			let groups = []
+			function iterate(array, save_array) {
+				let i = 0;
+				for (let element of array) {
+					if (element.type === 'group') {
+						if (element.export === true) {
+							let obj = element.compile(false)
+							if (element.children.length > 0) {
+								iterate(element.children, obj.children)
+							}
+							save_array.push(obj)
+						}
+					} else {
+						let index = element_indices[elements.indexOf(element)]
+						if (index >= 0) {
+							save_array.push(index)
+						}
+					}
+					i++;
+				}
+			}
+			iterate(Outliner.root, groups);
 			var i = 0;
 			while (i < groups.length) {
 				if (typeof groups[i] === 'object') {
@@ -240,6 +270,9 @@ var codec = new Codec('java_block', {
 			if (i === Infinity) {
 				blockmodel.groups = groups
 			}
+		}
+		for (let key in Project.unhandled_root_fields) {
+			if (blockmodel[key] === undefined) blockmodel[key] = Project.unhandled_root_fields[key];
 		}
 		this.dispatchEvent('compile', {model: blockmodel, options});
 		if (options.raw) {
@@ -256,8 +289,6 @@ var codec = new Codec('java_block', {
 			})
 			return;
 		}
-		Formats.java_block.select()
-		Settings.save()
 
 		this.dispatchEvent('parse', {model});
 
@@ -271,6 +302,7 @@ var codec = new Codec('java_block', {
 		}
 
 		//Load
+		if (typeof (model.credit || model.__comment) == 'string') Project.credit = (model.credit || model.__comment);
 		if (model.texture_size instanceof Array && !add) {
 			Project.texture_width  = Math.clamp(parseInt(model.texture_size[0]), 1, Infinity)
 			Project.texture_height = Math.clamp(parseInt(model.texture_size[1]), 1, Infinity)
@@ -294,22 +326,28 @@ var codec = new Codec('java_block', {
 
 			var texture_arr = model.textures
 
-			for (var tex in texture_arr) {
-				if (texture_arr.hasOwnProperty(tex)) {
-					if (tex != 'particle') {
-						var t = new Texture({id: tex}).fromJavaLink(texture_arr[tex], path_arr.slice()).add();
-						texture_paths[texture_arr[tex]] = texture_ids[tex] = t
-						new_textures.push(t);
+			for (var key in texture_arr) {
+				if (typeof texture_arr[key] === 'string' && key != 'particle') {
+					let link = texture_arr[key];
+					if (link.startsWith('#') && texture_arr[link.substring(1)]) {
+						link = texture_arr[link.substring(1)];
 					}
+					let texture = new Texture({id: key}).fromJavaLink(link, path_arr.slice()).add();
+					texture_paths[texture_arr[key].replace(/^minecraft:/, '')] = texture_ids[key] = texture;
+					new_textures.push(texture);
 				}
 			}
 			if (texture_arr.particle) {
-				if (texture_paths[texture_arr.particle]) {
-					texture_paths[texture_arr.particle].enableParticle()
+				let link = texture_arr.particle;
+				if (link.startsWith('#') && texture_arr[link.substring(1)]) {
+					link = texture_arr[link.substring(1)];
+				}
+				if (texture_paths[link.replace(/^minecraft:/, '')]) {
+					texture_paths[link.replace(/^minecraft:/, '')].enableParticle()
 				} else {
-					var t = new Texture({id: 'particle'}).fromJavaLink(texture_arr[tex], path_arr.slice()).enableParticle().add();
-					texture_paths[texture_arr[tex]] = texture_ids.particle = t;
-					new_textures.push(t);
+					let texture = new Texture({id: 'particle'}).fromJavaLink(link, path_arr.slice()).enableParticle().add();
+					texture_paths[link.replace(/^minecraft:/, '')] = texture_ids.particle = texture;
+					new_textures.push(texture);
 				}
 			}
 			//Get Rid Of ID overlapping
@@ -398,10 +436,63 @@ var codec = new Codec('java_block', {
 			})
 		}
 		if (model.groups && model.groups.length > 0) {
+
+			function parseGroupsForJava(array, import_reference, startIndex) {
+				function iterate(array, save_array, addGroup) {
+					var i = 0;
+					while (i < array.length) {
+						if (typeof array[i] === 'number' || typeof array[i] === 'string') {
+			
+							if (typeof array[i] === 'number') {
+								var obj = elements[array[i] + (startIndex ? startIndex : 0) ]
+							} else {
+								var obj = OutlinerNode.uuids[array[i]];
+							}
+							if (obj) {
+								obj.removeFromParent()
+								save_array.push(obj)
+								obj.parent = addGroup
+							}
+						} else {
+							if (OutlinerNode.uuids[array[i].uuid] instanceof Group) {
+								OutlinerNode.uuids[array[i].uuid].removeFromParent();
+								delete OutlinerNode.uuids[array[i].uuid];
+							}
+							var obj = new Group(array[i], array[i].uuid)
+							obj.parent = addGroup
+							obj.isOpen = !!array[i].isOpen
+							if (array[i].uuid) {
+								obj.uuid = array[i].uuid
+							}
+							save_array.push(obj)
+							obj.init()
+							if (array[i].children && array[i].children.length > 0) {
+								iterate(array[i].children, obj.children, obj)
+							}
+							if (array[i].content && array[i].content.length > 0) {
+								iterate(array[i].content, obj.children, obj)
+							}
+						}
+						i++;
+					}
+				}
+				if (import_reference instanceof Group && startIndex !== undefined) {
+					iterate(array, import_reference.children, import_reference)
+				} else {
+					if (!import_reference) {
+						Group.all.forEach(group => {
+							group.removeFromParent();
+						})
+						Group.all.empty();
+					}
+					iterate(array, Outliner.root, 'root');
+				}
+			}
+
 			if (!add) {
-				parseGroups(model.groups)
+				parseGroupsForJava(model.groups)
 			} else if (import_group) {
-				parseGroups(model.groups, import_group, oid)
+				parseGroupsForJava(model.groups, import_group, oid)
 			}
 		}
 		if (import_group) {
@@ -415,7 +506,7 @@ var codec = new Codec('java_block', {
 		) {
 			let texture_mesh = new TextureMesh({
 				name: model.textures.layer0,
-				rotation: [-90, 180, 0],
+				rotation: [90, 180, 0],
 				local_pivot: [0, -7.5, -16],
 				locked: true,
 				export: false
@@ -423,11 +514,42 @@ var codec = new Codec('java_block', {
 			texture_mesh.locked = true;
 
 			new_cubes.push(texture_mesh);
+
 		} else if (!model.elements && model.parent) {
+			let can_open = isApp && !model.parent.replace(/\w+:/, '').startsWith('builtin');
 			Blockbench.showMessageBox({
 				translateKey: 'child_model_only',
 				icon: 'info',
-				message: tl('message.child_model_only.message', [model.parent])
+				message: tl('message.child_model_only.message', [model.parent]),
+				commands: can_open && {
+					open: 'message.child_model_only.open',
+					open_with_textures: {text: 'message.child_model_only.open_with_textures', condition: Texture.all.length > 0}
+				}
+			}, (result) => {
+				if (result) {
+					let parent = model.parent.replace(/\w+:/, '');
+					let path_arr = path.split(osfs);
+					let index = path_arr.length - path_arr.indexOf('models');
+					path_arr.splice(-index);
+					path_arr.push('models', ...parent.split('/'));
+					let parent_path = path_arr.join(osfs) + '.json';
+
+					Blockbench.read([parent_path], {}, (files) => {
+						loadModelFile(files[0]);
+
+						if (result == 'open_with_textures') {
+							Texture.all.forEachReverse(tex => {
+								if (tex.error == 3 && tex.name.startsWith('#')) {
+									let loaded_tex = texture_ids[tex.name.replace(/#/, '')];
+									if (loaded_tex) {
+										tex.fromPath(loaded_tex.path);
+										tex.namespace = loaded_tex.namespace;
+									}
+								}
+							})
+						}
+					})
+				}
 			})
 		}
 		updateSelection()
@@ -443,10 +565,18 @@ var codec = new Codec('java_block', {
 		if (model.gui_light === 'front') {
 			Project.front_gui_light = true;
 		}
+		let supported_fields = new Set(['textures', 'elements', 'groups', 'parent', 'display', '__comment', 'credit', 'texture_size', 'overrides', 'ambientocclusion', 'gui_light']);
+		for (let key in model) {
+			if (!supported_fields.has(key)) {
+				Project.unhandled_root_fields[key] = model[key];
+			}
+		}
+
 		this.dispatchEvent('parsed', {model});
 		if (add) {
 			Undo.finishEdit('Add block model')
 		}
+		Validator.validate()
 	},
 })
 
@@ -454,14 +584,89 @@ var format = new ModelFormat({
 	id: 'java_block',
 	extension: 'json',
 	icon: 'icon-format_block',
+	category: 'minecraft',
+	target: 'Minecraft: Java Edition',
+	format_page: {
+		content: [
+			{type: 'h3', text: tl('mode.start.format.informations')},
+			{text: `* ${tl('format.java_block.info.rotation')}
+					* ${tl('format.java_block.info.size')}
+					* ${tl('format.java_block.info.animation')}`.replace(/\t+/g, '')
+			}
+		]
+	},
+	render_sides: 'front',
+	model_identifier: false,
+	parent_model_id: true,
+	vertex_color_ambient_occlusion: true,
 	rotate_cubes: true,
-	canvas_limit: true,
 	rotation_limit: true,
+	rotation_snap: true,
 	optional_box_uv: true,
 	uv_rotation: true,
+	java_cube_shading_properties: true,
+	java_face_properties: true,
+	cullfaces: true,
 	animated_textures: true,
+	select_texture_for_particles: true,
+	texture_mcmeta: true,
 	display_mode: true,
 	texture_folder: true,
+	cube_size_limiter: {
+		coordinate_limits: [-16, 32],
+		test(cube, values = 0) {
+			let from = values.from || cube.from;
+			let to = values.to || cube.to;
+			let inflate = values.inflate == undefined ? cube.inflate : values.inflate;
+
+			return undefined !== from.find((v, i) => {
+				return (
+					to[i] + inflate > 32 ||
+					to[i] + inflate < -16 ||
+					from[i] - inflate > 32 ||
+					from[i] - inflate < -16
+				)
+			})
+		},
+		move(cube, values = 0) {
+			let from = values.from || cube.from;
+			let to = values.to || cube.to;
+			let inflate = values.inflate == undefined ? cube.inflate : values.inflate;
+			
+			[0, 1, 2].forEach((ax) => {
+				var overlap = to[ax] + inflate - 32
+				if (overlap > 0) {
+					//If positive site overlaps
+					from[ax] -= overlap
+					to[ax] -= overlap
+
+					if (16 + from[ax] - inflate < 0) {
+						from[ax] = -16 + inflate
+					}
+				} else {
+					overlap = from[ax] - inflate + 16
+					if (overlap < 0) {
+						from[ax] -= overlap
+						to[ax] -= overlap
+
+						if (to[ax] + inflate > 32) {
+							to[ax] = 32 - inflate
+						}
+					}
+				}
+			})
+		},
+		clamp(cube, values = 0) {
+			let from = values.from || cube.from;
+			let to = values.to || cube.to;
+			let inflate = values.inflate == undefined ? cube.inflate : values.inflate;
+			
+			[0, 1, 2].forEach((ax) => {
+				from[ax] = Math.clamp(from[ax] - inflate, -16, 32) + inflate;
+				to[ax] = Math.clamp(to[ax] + inflate, -16, 32) - inflate;
+			})
+		}
+	},
 	codec
 })
 codec.format = format;

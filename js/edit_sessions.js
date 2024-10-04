@@ -97,7 +97,7 @@ class EditSession {
 					translateKey: 'invalid_session',
 					icon: 'cloud_off',
 				}, result => {
-					showDialog('edit_sessions');
+					BarItems.edit_session.click();
 				})
 				return;
 			}
@@ -113,7 +113,7 @@ class EditSession {
 				this.quit()
 			})
 			conn.on('open', () => {
-				hideDialog()
+				if (Dialog.open && Dialog.open.id == 'edit_session') Dialog.open.cancel();
 				this.host = conn;
 				this.setState(true);
 				this.initConnection(conn)
@@ -152,7 +152,7 @@ class EditSession {
 			this.hosting = false;
 		}
 		Interface.tab_bar.$forceUpdate();
-		updateInterface()
+		TickUpdates.interface = true;
 	}
 	copyToken() {
 		var input = $('#edit_session_token')
@@ -210,7 +210,8 @@ class EditSession {
 			before: omitKeys(entry.before, ['aspects']),
 			post: omitKeys(entry.post, ['aspects']),
 			save_history: entry.save_history,
-			action: entry.action
+			action: entry.action,
+			time: entry.time || Date.now()
 		}
 		this.sendAll('edit', JSON.stringify(new_entry))
 	}
@@ -398,9 +399,9 @@ EditSession.ChatMessage = class {
 		this.self = data.sender == this.session.peer.id;
 		this.text = data.text.substr(0, EditSession.defaults.max_chat_length)||'';
 
-		this.html = this.text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+		this.html = Interface.createElement('p', {}, this.text).innerHTML;
 		this.html = this.html.replace(/https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/g, (text, i) => {
-			return `<a href="${text}" class="open-in-browser">${text}</a>`;
+			return Interface.createElement('a', {href: text, class: "open-in-browser"}, text).outerHTML;
 		})
 		var date = new Date();
 		this.timestamp = date.getTimestamp()
@@ -461,7 +462,7 @@ BARS.defineActions(function() {
 				title: 'dialog.edit_session.title',
 				form: {
 					username: {type: 'text', label: 'edit_session.username', value: username},
-					token: {type: 'text', label: 'edit_session.token', value: token, readonly: !!session},
+					token: {type: 'text', label: 'edit_session.token', value: token, readonly: !!session, share_text: true},
 					about: {type: 'info', text: 'edit_session.about', condition: !session},
 					status: {type: 'info', text: `**${tl('edit_session.status')}**: ${(session && session.hosting) ? tl('edit_session.hosting') : tl('edit_session.connected')}`, condition: !!session},
 				},
@@ -504,11 +505,15 @@ EditSession.sanitizeMessage = function(text) {
 
 Interface.definePanels(function() {
 
-	Interface.Panels.chat = new Panel({
-		id: 'chat',
+	new Panel('chat', {
 		icon: 'chat',
 		condition: {method() {return Project.EditSession && Project.EditSession.active}},
-		toolbars: {},
+		default_position: {
+			slot: 'right_bar',
+			float_position: [0, 0],
+			float_size: [300, 400],
+			height: 400
+		},
 		onResize: t => {
 		},
 		component: {

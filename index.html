@@ -5,6 +5,7 @@
 	<meta charset="utf-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<meta name="theme-color" content="#181a1f">
+	<meta name="color-scheme" content="dark">
 	<meta name="robots" content="noindex">
 	<link rel="manifest" href="manifest.webmanifest">
 	<link rel="shortcut icon" href="favicon.png" type="image/x-icon" />
@@ -17,15 +18,16 @@
 	<link rel="stylesheet" href="css/setup.css">
 	<link rel="stylesheet" href="css/general.css">
 	<link rel="stylesheet" href="css/window.css">
+	<link rel="stylesheet" href="css/start_screen.css">
 	<link rel="stylesheet" href="css/panels.css">
 	<link rel="stylesheet" href="css/dialogs.css">
 	<style type="text/css" id="theme_css"></style>
+	<style type="text/css" id="theme_thumbnail_css"></style>
 </head>
-<body spellcheck="false">
+<body spellcheck="false" class="maximized">
 	<script>
 		if (typeof module === 'object') {window.module = module; module = undefined;}//jQuery Fix
 		const isApp = typeof require !== 'undefined';
-		const appVersion = '4.2.0-beta.0';
 
 		
 		if (localStorage.getItem('theme')) {
@@ -34,8 +36,9 @@
 				document.body.style.setProperty('--color-dark', stored_theme.colors.dark);
 			} catch (err) {}
 		}
-
+		window.ErrorLog = [];
 		window.onerror = (message, file, line) => {
+			window.ErrorLog.push({message, file, line})
 			if (typeof Blockbench != 'undefined' && Blockbench.setup_successful) return;
 
 			let error_element = document.querySelector('#loading_error_detail');
@@ -48,14 +51,24 @@
 		<div>An error occurred while loading Blockbench</div>
 		<div id="loading_error_detail" style="color: var(--color-subtle_text);"></div>
 		<button onclick="isApp ? Blockbench.reload() : window.location.reload(true)" class="large" style="margin-right: auto; margin-left: auto;">Reload</button>
+		<button onclick="factoryResetAndReload()" class="large" style="margin-right: auto; margin-left: auto;">Factory Reset</button>
 		<button onclick="window.close()" class="large" style="margin-right: auto; margin-left: auto;">Quit</button>
 	</div>
+	<script>
+		// Browser compatibility check
+		try {
+			eval('window?.document ?? 2');
+		} catch (err) {
+			console.error(err);
+			let error_element = document.querySelector('#loading_error_detail')
+			error_element.innerHTML = `Incompatible browser version. Please update your web browser.`
+		}
+	</script>
 		<script src="lib/vue.min.js"></script>
 		<script src="lib/vue_sortable.js"></script>
 		<script src="lib/jquery.js"></script>
 		<script src="lib/jquery-ui.min.js"></script>
 		<script src="lib/targa.js"></script>
-		<script src="lib/jimp.min.js"></script>
 		<script src="lib/jszip.min.js"></script>
 		<script src="lib/gif.js"></script>
 		<script src="lib/FileSaver.js"></script>
@@ -65,32 +78,43 @@
 		<script src="lib/lzutf8.js"></script>
 		<script src="lib/peer.min.js"></script>
 		<script src="lib/marked.min.js"></script>
+		<script src="lib/purify.min.js"></script>
+		<script src="lib/fuse.basic.min.js"></script>
 		<script src="lib/spectrum.js"></script>
 		<script src="lib/color-picker.min.js"></script>
 		<script src="lib/three.min.js"></script>
 		<script src="lib/three_custom.js"></script>
 		<script src="lib/GLTFExporter.js"></script>
 		<script src="lib/CanvasFrame.js"></script>
+		<script src="lib/canvas2apng.js"></script>
 		<script src="lib/fik.min.js"></script>
 		<script src="lib/molang.umd.js"></script>
 		<script src="lib/wintersky.umd.js"></script>
+		<script src="lib/easing.js"></script>
 		
-		<script src="js/webpack/bundle.js"></script>
+		<script src="bundle.js"></script>
 		<script src="js/preview/OrbitControls.js"></script>
-		<script src="js/util.js"></script>
-		<script src="js/property.js"></script>
+		<script src="js/util/util.js"></script>
+		<script src="js/util/math_util.js"></script>
+		<script src="js/util/array_util.js"></script>
+		<script src="js/util/event_system.js"></script>
+		<script src="js/util/property.js"></script>
 		<script src="js/interface/menu.js"></script>
 		<script src="js/interface/actions.js"></script>
 		<script src="js/interface/themes.js"></script>
-		<script src="js/blockbench.js"></script>
+		<script src="js/interface/shared_actions.js"></script>
+		<script src="js/misc.js"></script>
 		<script src="js/modes.js"></script>
 		<script src="js/api.js"></script>
 		<script src="js/file_system.js"></script>
+		<script src="js/interface/vue_components.js"></script>
 		<script src="js/interface/panels.js"></script>
 		<script src="js/interface/interface.js"></script>
+		<script src="js/interface/menu_bar.js"></script>
 		<script src="js/interface/start_screen.js"></script>
 		<script src="js/interface/keyboard.js"></script>
 		<script src="js/interface/settings.js"></script>
+		<script src="js/interface/about.js"></script>
 		<script src="js/interface/dialog.js"></script>
 		<script src="js/interface/action_control.js"></script>
 		<script src="js/copy_paste.js"></script>
@@ -105,46 +129,64 @@
 		</script>
 
 		<script src="js/edit_sessions.js"></script>
+		<script src="js/validator.js"></script>
 		<script src="js/outliner/outliner.js"></script>
 		<script src="js/outliner/group.js"></script>
+		<script src="js/outliner/armature_bone.js"></script>
 		<script src="js/outliner/mesh.js"></script>
 		<script src="js/outliner/cube.js"></script>
 		<script src="js/outliner/texture_mesh.js"></script>
 		<script src="js/outliner/locator.js"></script>
 		<script src="js/outliner/null_object.js"></script>
 		<script src="js/preview/preview.js"></script>
+		<script src="js/preview/reference_images.js"></script>
 		<script src="js/preview/screenshot.js"></script>
 		<script src="js/preview/canvas.js"></script>
-		<script src="js/preview/transformer.js"></script>
-		<script src="js/transform.js"></script>
+		<script src="js/modeling/transform_gizmo.js"></script>
+		<script src="js/modeling/transform.js"></script>
+		<script src="js/modeling/scale.js"></script>
+		<script src="js/modeling/mesh_editing.js"></script>
+		<script src="js/modeling/mirror_modeling.js"></script>
+		<script src="js/texturing/layers.js"></script>
 		<script src="js/texturing/textures.js"></script>
+		<script src="js/texturing/texture_groups.js"></script>
+		<script src="js/texturing/texture_flipbook.js"></script>
 		<script src="js/texturing/uv.js"></script>
 		<script src="js/texturing/painter.js"></script>
 		<script src="js/texturing/texture_generator.js"></script>
 		<script src="js/texturing/color.js"></script>
-		<script src="js/texturing/edit_texture.js"></script>
+		<script src="js/texturing/edit_image.js"></script>
 		<script src="js/display_mode.js"></script>
+		<script src="js/animations/animation_mode.js"></script>
 		<script src="js/animations/animation.js"></script>
+		<script src="js/animations/molang.js"></script>
 		<script src="js/animations/timeline_animators.js"></script>
 		<script src="js/animations/keyframe.js"></script>
 		<script src="js/animations/timeline.js"></script>
+		<script src="js/animations/animation_controllers.js"></script>
+		<script src="js/preview/preview_scenes.js"></script>
+		<script src="js/predicate_editor.js"></script>
 		<script src="js/plugin_loader.js"></script>
 
 		<script src="js/io/codec.js"></script>
 		<script src="js/io/format.js"></script>
 		<script src="js/io/project.js"></script>
 		<script src="js/io/io.js"></script>
+		<script src="js/io/share.js"></script>
+		<script src="js/io/formats/generic.js"></script>
 		<script src="js/io/formats/bbmodel.js"></script>
 		<script src="js/io/formats/java_block.js"></script>
 		<script src="js/io/formats/bedrock.js"></script>
 		<script src="js/io/formats/bedrock_old.js"></script>
 		<script src="js/io/formats/obj.js"></script>
 		<script src="js/io/formats/gltf.js"></script>
+		<script src="js/io/formats/fbx.js"></script>
 		<script src="js/io/formats/collada.js"></script>
 		<script src="js/io/formats/modded_entity.js"></script>
 		<script src="js/io/formats/optifine_jem.js"></script>
 		<script src="js/io/formats/optifine_jpm.js"></script>
 		<script src="js/io/formats/skin.js"></script>
+		<script src="js/io/formats/image.js"></script>
 		<script src="js/globals.js"></script>
 
 		<script>if (window.module) module = window.module;</script>
@@ -153,194 +195,13 @@
 
 	<div id="overlay_message_box" style="display: none;">
 		<div>
-			<h3><i class="material-icons">keyboard</i><span class="tl">keybindings.recording</span></h3>
+			<h3><i class="material-icons icon">keyboard</i><span class="tl">keybindings.recording</span></h3>
 			<p class="tl">keybindings.press</p>
 			<button class="tl" onclick="Keybinds.recording.stopRecording()">dialog.cancel</button>
 			<button class="tl" onclick="Keybinds.recording.clear().stopRecording()">keybindings.clear</button>
 			<div id="keybind_input_box" contenteditable="true" style="font-size: 0"></div>
 		</div>
 	</div>
-
-	<dialog class="dialog draggable" id="entity_import">
-		<div class="dialog_handle">
-			<div class="dialog_title tl">dialog.entitylist.title</div>
-		</div>
-		<div class="dialog_content">
-			<div class="dialog_bar narrow tl">dialog.entitylist.text</div>
-				<div class="search_bar">
-					<input type="text" class="dark_bordered" id="pe_search_bar" oninput="pe_list._data.search_term = $(this).val().toUpperCase()">
-					<i class="material-icons" id="plugin_search_bar_icon">search</i>
-				</div>
-			<ul id="pe_list" class="list">
-				<li v-for="item in searched" v-bind:class="{ selected: item.selected }" v-on:click="selectE(item, $event)" v-on:dblclick="open(item)">
-					<img class="pe_icon" v-if="item.icon" v-bind:src="item.icon">
-					<div class="pe_icon" v-else></div>
-					<h4>{{ item.title }} <span>({{ item.name }})</span></h4>
-					<p>{{ item.bonecount+' '+tl('dialog.entitylist.bones') }}, {{ item.cubecount+' '+tl('dialog.entitylist.cubes') }}</p>
-				</li>
-			</ul>
-		</div>
-
-		<div class="dialog_bar button_bar">
-			<button type="button" class="tl confirm_btn" onclick="">dialog.import</button>
-			<button type="button" class="cancel_btn tl" onclick="hideDialog();BarItems.close_project.click()">dialog.cancel</button>
-		</div>
-		<div class="dialog_close_button" onclick="hideDialog();BarItems.close_project.click()"><i class="material-icons">clear</i></div>
-	</dialog>
-
-	<dialog class="dialog draggable" id="image_extruder">
-		<div class="dialog_handle">
-			<div class="dialog_title tl">dialog.extrude.title</div>
-		</div>
-
-		<div class="dialog_content">
-			<div class="dialog_bar">
-				<label class="tl">dialog.extrude.mode</label>
-				<div class="bar_select f_left">
-					<select id="scan_mode" name="scan_mode">
-						<option class="tl" id="areas" selected>dialog.extrude.mode.areas</option>
-						<option class="tl" id="lines">dialog.extrude.mode.lines</option>
-						<option class="tl" id="columns">dialog.extrude.mode.columns</option>
-						<option class="tl" id="pixels">dialog.extrude.mode.pixels</option>
-					</select>
-				</div>
-			</div>
-
-			<div class="dialog_bar">
-				<label class="tl">dialog.extrude.opacity</label>
-				<input class="tool" type="range" id="scan_tolerance" value="255" min="1" max="255">
-				<label id="scan_tolerance_label">255</label>
-			</div>
-
-			<canvas height="256" width="256" id="extrusion_canvas"></canvas>
-		</div>
-
-		<div class="dialog_bar button_bar">
-			<button type="button" class="confirm_btn tl" onclick="Extruder.startConversion()">Scan and Import</button>
-			<button type="button" class="cancel_btn tl" onclick="hideDialog()">dialog.cancel</button>
-		</div>
-		<div class="dialog_close_button" onclick="hideDialog()"><i class="material-icons">clear</i></div>
-	</dialog>
-
-	<dialog class="dialog draggable" id="scaling">
-		<div class="dialog_handle">
-			<div class="dialog_title tl">dialog.scale.title</div>
-		</div>
-
-		<div class="dialog_content">
-			<label class="tl">dialog.scale.axis</label>
-
-			<div class="dialog_bar" style="height: 32px;">
-				<input type="checkbox" class="toggle_panel" id="model_scale_x_axis" onchange="scaleAll()" checked>
-				<label class="toggle_panel" for="model_scale_x_axis">X</label>
-				<input type="checkbox" class="toggle_panel" id="model_scale_y_axis" onchange="scaleAll()" checked>
-				<label class="toggle_panel" for="model_scale_y_axis">Y</label>
-				<input type="checkbox" class="toggle_panel" id="model_scale_z_axis" onchange="scaleAll()" checked>
-				<label class="toggle_panel" for="model_scale_z_axis">Z</label>
-			</div>
-
-			<label class="tl">data.origin</label>
-			<div class="dialog_bar">
-				<label for="scaling_origin_x" class="inline_label tl">X</label>
-				<input type="number" id="scaling_origin_x" class="dark_bordered medium_width" oninput="scaleAll()">
-				<label for="scaling_origin_y" class="inline_label tl">Y</label>
-				<input type="number" id="scaling_origin_y" class="dark_bordered medium_width" oninput="scaleAll()">
-				<label for="scaling_origin_z" class="inline_label tl">Z</label>
-				<input type="number" id="scaling_origin_z" class="dark_bordered medium_width" oninput="scaleAll()">
-				<div class="tool" style="float: none" onclick="setScaleAllPivot('origin')">
-					<div class="tooltip tl">dialog.scale.element_pivot</div>
-					<i class="material-icons">center_focus_strong</i>
-				</div>
-				<div class="tool" style="float: none" onclick="setScaleAllPivot('selection')">
-					<div class="tooltip tl">dialog.scale.selection_center</div>
-					<i class="material-icons">filter_tilt_shift</i>
-				</div>
-			</div>
-
-			<label class="tl">dialog.scale.scale</label>
-			<div class="dialog_bar" style="height: 32px;">
-				<input type="range" id="model_scale_range" value="1" min="0" max="4" step="0.02" oninput="modelScaleSync()">
-				<input type="number" class="f_left dark_bordered" id="model_scale_label" min="0" max="4" step="0.02" value="1" oninput="modelScaleSync(true)">
-			</div>
-
-			<div class="dialog_bar narrow" id="scaling_clipping_warning"></div>
-		</div>
-
-		<div class="dialog_bar button_bar">
-			<button type="button" onclick="scaleAll(true)" class="confirm_btn tl">dialog.scale.confirm</button>
-			<button type="button" class="cancel_btn tl" onclick="cancelScaleAll()">dialog.cancel</button>
-			<button type="button" class="minor hidden tl" id="scale_overflow_btn" onclick="scaleAllSelectOverflow()">dialog.scale.select_overflow</button>
-		</div>
-		<div class="dialog_close_button" onclick="cancelScaleAll()"><i class="material-icons">clear</i></div>
-	</dialog>
-
-	<dialog class="dialog draggable" id="create_preset">
-		<div class="dialog_handle">
-			<div class="dialog_title tl">dialog.display_presets.title</div>
-		</div>
-		<div class="dialog_content">
-			<div class="dialog_bar tl">dialog.display_preset.message</div>
-			<div class="dialog_bar">
-				<input type="checkbox" id="thirdperson_righthand_save" checked>
-				<label for="thirdperson_righthand_save" class="tl">display.slot.third_right</label>
-			</div>
-			<div class="dialog_bar">
-				<input type="checkbox" id="thirdperson_lefthand_save" checked>
-				<label for="thirdperson_lefthand_save" class="tl">display.slot.third_left</label>
-			</div>
-			<div class="dialog_bar">
-				<input type="checkbox" id="firstperson_righthand_save" checked>
-				<label for="firstperson_righthand_save" class="tl">display.slot.first_right</label>
-			</div>
-			<div class="dialog_bar">
-				<input type="checkbox" id="firstperson_lefthand_save" checked>
-				<label for="firstperson_lefthand_save" class="tl">display.slot.first_left</label>
-			</div>
-			<div class="dialog_bar">
-				<input type="checkbox" id="head_save" checked>
-				<label for="head_save" class="tl">display.slot.head</label>
-			</div>
-			<div class="dialog_bar">
-				<input type="checkbox" id="ground_save" checked>
-				<label for="ground_save" class="tl">display.slot.ground</label>
-			</div>
-			<div class="dialog_bar">
-				<input type="checkbox" id="fixed_save" checked>
-				<label for="fixed_save" class="tl">display.slot.frame</label>
-			</div>
-			<div class="dialog_bar">
-				<input type="checkbox" id="gui_save" checked>
-				<label for="gui_save" class="tl">display.slot.gui</label>
-			</div>
-			<div class="dialog_bar narrow">
-				<label class="tl">generic.name</label>
-			</div>
-			<div class="dialog_bar">
-				<input type="text" id="preset_name" class="input_wide" id="new preset">
-			</div>
-		</div>
-		<div class="dialog_bar button_bar">
-			<button type="button" class="tl confirm_btn" onclick="DisplayMode.createPreset()">dialog.display_preset.create</button>
-			<button type="button" class="tl cancel_btn" onclick="hideDialog()">dialog.cancel</button>
-		</div>
-		<div class="dialog_close_button" onclick="hideDialog()"><i class="material-icons">clear</i></div>
-	</dialog>
-
-	<dialog class="dialog draggable" id="text_input">
-		<div class="dialog_handle">
-			<div class="dialog_title tl">dialog.input.title</div>
-		</div>
-
-		<div class="dialog_content">
-			<input type="text" id="text_input_field" class="dark_bordered input_wide">
-		</div>
-
-		<div class="dialog_bar button_bar">
-			<button type="button" class="confirm_btn tl" onclick="hideDialog()">dialog.confirm</button>
-			<button type="button" class="cancel_btn tl" onclick="hideDialog()">dialog.cancel</button>
-		</div>
-		<div class="dialog_close_button" onclick="hideDialog()"><i class="material-icons">clear</i></div>
-	</dialog>
 
 	<div id="dialog_wrapper"></div>
 
@@ -350,15 +211,28 @@
 			<img class="blockbench_logo" src="assets/logo_text_white.svg" alt="Blockbench" />
 		</div>
 		<ul id="menu_bar" class="scroll_horizontal"></ul>
-		<div id="title_bar_home_button" class="tool" onclick="Interface.tab_bar.openNewTab()"><i class="material-icons">home</i></div>
+		<div id="title_bar_home_button" class="tool" onclick="Interface.tab_bar.openNewTab()"><i class="material-icons icon">home</i></div>
 		<div class="app-drag-region" id="header_free_bar"></div>
 		<div id="update_menu"></div>
+		<div id="settings_profiles_header_menu" class="hidden tool">
+			<i class="material-icons icon">manage_accounts</i>
+		</div>
 		<ul id="windows_window_menu" hidden>
-			<li onclick="currentwindow.minimize()"><i class="material-icons" style="margin-top: 4px;">remove</i></li>
-			<li onclick="currentwindow.isMaximized() ? currentwindow.unmaximize() : currentwindow.maximize()"><i class="material-icons">crop_square</i><!--🗖--></li>
-			<li class="wwm_r" onclick="currentwindow.close()"><i class="material-icons">clear</i></li>
+			<li onclick="currentwindow.minimize()">
+				<svg width="18" height="18" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><path d="M14 8v1H3V8h11z"/></svg>
+			</li>
+			<li onclick="currentwindow.isMaximized() ? currentwindow.unmaximize() : currentwindow.maximize()">
+				<svg class="restore" width="18" height="18" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><path d="M3 5v9h9V5H3zm8 8H4V6h7v7z"/><path fill-rule="evenodd" clip-rule="evenodd" d="M5 5h1V4h7v7h-1v1h2V3H5v2z"/></svg>
+				<svg class="maximize" width="18" height="18" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><path d="M3 3v10h10V3H3zm9 9H4V4h8v8z"/></svg>
+			</li>
+			<li class="wwm_r" onclick="currentwindow.close()">
+				<svg width="18" height="18" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M7.116 8l-4.558 4.558.884.884L8 8.884l4.558 4.558.884-.884L8.884 8l4.558-4.558-.884-.884L8 7.116 3.442 2.558l-.884.884L7.116 8z"/></svg>
+			</li>
 		</ul>
-		<button id="web_download_button" hidden><a class="tl" href="https://blockbench.net/downloads">web.download_app</a></button>
+		<button id="web_download_button" hidden><a href="https://blockbench.net/downloads">
+			<span class="tl">web.download_app</span>
+			<i class="material-icons icon">system_update</i>
+		</a></button>
 	</header>
 	
 
@@ -367,7 +241,7 @@
 		<div id="blackout" class="darken"></div>
 
 		<div id="tab_bar" :class="{drag_mode: drag_target_index !== null}">
-			<div id="tab_bar_list">
+			<div id="tab_bar_list" @wheel="mousewheelBar($event)" ref="tab_bar_list">
 				<div
 					class="project_tab"
 					v-for="(project, index) in tabs" :key="project.uuid"
@@ -378,13 +252,15 @@
 						move_back:  (drag_position_index !== null && index > drag_target_index && drag_position_index >= index),
 						move_forth: (drag_position_index !== null && index < drag_target_index && drag_position_index <= index)
 					}"
-					:title="project.name || project.geometry_name"
+					:title="project.name || project.geometry_name || ''"
 					@dblclick="project.openSettings()"
+					@contextmenu="project.showContextMenu($event)"
 					@mousedown="mouseDown(project, $event)"
 					@mouseup="mouseUp(project, $event)"
 					@mouseenter="mouseEnter(project, $event)"
 					@mouseleave="mouseLeave(project, $event)"
 				>
+					<dynamic-icon :icon="project.format ? project.format.icon : 'home'"></dynamic-icon>
 					<label class="project_tab_session_badge" v-if="project.EditSession"><i class="material-icons">group</i>{{ project.EditSession.client_count }}</label>
 					<label>{{ project.getDisplayName() }}</label>
 					<div class="project_tab_close_button" :class="{unsaved: !project.saved}" :title="close_tab_label" @click="project.close()">
@@ -396,8 +272,8 @@
 					<i class="material-icons">add</i>
 				</div>
 			</div>
-			<div id="search_tab_button" v-if="projects.length > 1" @click="searchTabs()" :title="search_tabs_label">
-				<i class="material-icons">search</i>
+			<div id="search_tab_button" v-if="projects.length > 1" @click="tabOverview()" :title="search_tabs_label">
+				<i class="material-icons">view_module</i>
 			</div>
 		</div>
 
@@ -411,7 +287,7 @@
 				<div class="toolbar_wrapper narrow tools"></div>
 
 				<div class="toolbar_wrapper narrow tool_options"></div>
-				<ul id="mode_selector">
+				<ul id="mode_selector" v-if="showModes()">
 					<li
 						v-for="mode in options"
 						v-if="Condition(mode.condition)"
@@ -419,94 +295,20 @@
 						v-on:mousedown="mode.select()"
 					>{{ mode.name }}</li>
 				</ul>
-				<div class="toolbar_wrapper narrow mobile_side"></div>
 			</div>
 			
 			<div id="left_bar" class="sidebar"></div>
 
-			<div id="right_bar" class="sidebar">
+			<div id="right_bar" class="sidebar"></div>
 
-				<div id="element" class="panel selection_only">
-					<div class="panel_inside">
-						<p class="tl panel_toolbar_label">panel.element.position</p>
-						<div class="toolbar_wrapper element_position"></div>
-						<p class="tl panel_toolbar_label">panel.element.size</p>
-						<div class="toolbar_wrapper element_size"></div>
-						<p class="tl panel_toolbar_label">panel.element.origin</p>
-						<div class="toolbar_wrapper element_origin"></div>
-						<p class="tl panel_toolbar_label">panel.element.rotation</p>
-						<div class="toolbar_wrapper element_rotation"></div>
-					</div>
-				</div>
-
-				<div id="color" class="panel">
-					<div id="color_panel_wrapper" class="panel_inside">
-						<div id="color_panel_head">
-							<div class="main" v-bind:style="{'background-color': hover_color || main_color}"></div>
-							<div class="side">
-								<input type="text" v-model="color_code" @focusout="validateMainColor()">
-								<div id="color_history">
-									<li
-										v-for="(color, i) in history" v-if="i || color != main_color"
-										:key="color"
-										v-bind:style="{'background-color': color}"
-										v-bind:title="color" @click="setColor(color)"
-									></li>
-								</div>
-							</div>
-						</div>
-
-						<div class="bar tabs_small">
-
-							<input type="radio" name="tab" id="radio_color_picker" value="picker" v-model="open_tab">
-							<label class="tl" for="radio_color_picker">panel.color.picker</label>
-
-							<input type="radio" name="tab" id="radio_color_palette" value="palette" v-model="open_tab">
-							<label class="tl" for="radio_color_palette">panel.color.palette</label>
-
-							<input type="radio" name="tab" id="radio_color_both" value="both" v-model="open_tab">
-							<label class="tl" for="radio_color_both">panel.color.both</label>
-
-							<div class="tool" @click="togglePickerType()" :title="picker_toggle_label">
-								<i class="fa_big icon" :class="picker_type == 'box' ? 'fas fa-square' : 'far fa-stop-circle'"></i>
-							</div>
-
-						</div>
-						<div v-show="open_tab == 'picker' || open_tab == 'both'">
-							<div v-show="picker_type == 'box'">
-								<input id="main_colorpicker">
-							</div>
-							<color-wheel v-if="picker_type == 'wheel' && width" v-model="main_color" :width="width" :height="width"></color-wheel>
-							<div class="toolbar_wrapper color_picker"></div>
-						</div>
-						<div v-show="open_tab == 'palette' || open_tab == 'both'">
-							<div class="toolbar_wrapper palette"></div>
-							<ul id="palette_list" class="list" v-sortable="{onUpdate: sort, onEnd: drop, fallbackTolerance: 10}" @contextmenu="ColorPanel.menu.open($event)">
-								<li
-									class="color" v-for="color in palette"
-									:title="color" :key="color"
-									:class="{selected: color == main_color, contrast: isDarkColor(color)}"
-									@click="setColor(color)"
-									@mouseenter="hover_color = color"
-									@mouseleave="hover_color = ''"
-								>
-									<div class="color_inner" v-bind:style="{'background-color': color}"></div>
-								</li>
-							</ul>
-						</div>
-					</div>
-				</div>
-
-			</div>
 			<div id="center">
-				<ul id="toast_notification_list">
-				</ul>
-				<div id="preview" class="center_window">
+				<ul id="toast_notification_list"></ul>
+
+				<div id="top_slot"></div>
+				<div id="preview">
+					<div class="clamped_reference_images"></div>
 				</div>
-				<div id="timeline" class="center_window">
-					<div class="toolbar_wrapper timeline"></div>
-					<div id="timeline_vue"></div>
-				</div>
+				<div id="bottom_slot"></div>
 
 				<div id="mobile_panel_overlay" hidden></div>
 			</div>

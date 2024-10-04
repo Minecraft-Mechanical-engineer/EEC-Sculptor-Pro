@@ -1,4 +1,4 @@
-const {app, BrowserWindow, Menu, ipcMain} = require('electron')
+const {app, BrowserWindow, Menu, ipcMain, shell} = require('electron')
 const path = require('path')
 const url = require('url')
 const { autoUpdater } = require('electron-updater');
@@ -8,6 +8,20 @@ require('@electron/remote/main').initialize()
 
 let orig_win;
 let all_wins = [];
+let load_project_data;
+
+(() => {
+	// Allow advanced users to specify a custom userData directory.
+	// Useful for portable installations, and for setting up development environments.
+	const index = process.argv.findIndex(arg => arg === '--userData');
+	if (index !== -1) {
+		if (!process.argv.at(index + 1)) {
+			console.error('No path specified after --userData')
+			process.exit(1)
+		}
+		app.setPath('userData', process.argv[index + 1]);
+	}
+})()
 
 const LaunchSettings = {
 	path: path.join(app.getPath('userData'), 'launch_settings.json'),
@@ -35,19 +49,21 @@ if (LaunchSettings.get('hardware_acceleration') == false) {
 	app.disableHardwareAcceleration();
 }
 
-function createWindow(second_instance) {
+function createWindow(second_instance, options = {}) {
 	if (app.requestSingleInstanceLock && !app.requestSingleInstanceLock()) {
 		app.quit()
 		return;
 	}
-	let win = new BrowserWindow({
-		icon:'icon.ico',
+	let win_options = {
+		icon: 'icon.ico',
 		show: false,
 		backgroundColor: '#21252b',
 		frame: LaunchSettings.get('native_window_frame') === true,
 		titleBarStyle: 'hidden',
 		minWidth: 640,
 		minHeight: 480,
+		width: 1080,
+		height: 720,
 		webPreferences: {
 			webgl: true,
 			webSecurity: true,
@@ -55,7 +71,12 @@ function createWindow(second_instance) {
 			contextIsolation: false,
 			enableRemoteModule: true
 		}
-	})
+	};
+	if (options.position) {
+		win_options.x = options.position[0] - 300;
+		win_options.y = Math.max(options.position[1] - 100, 0);
+	}
+	let win = new BrowserWindow(win_options)
 	if (!orig_win) orig_win = win;
 	all_wins.push(win);
 
@@ -133,7 +154,7 @@ function createWindow(second_instance) {
 		win.setMenu(null);
 	}
 	
-	win.maximize()
+	if (options.maximize !== false) win.maximize()
 	win.show()
 
 	win.loadURL(url.format({
@@ -152,6 +173,7 @@ function createWindow(second_instance) {
 }
 
 app.commandLine.appendSwitch('ignore-gpu-blacklist')
+app.commandLine.appendSwitch('ignore-gpu-blocklist')
 app.commandLine.appendSwitch('enable-accelerated-video')
 
 app.on('second-instance', function (event, argv, cwd) {
@@ -172,20 +194,46 @@ app.on('open-file', function (event, path) {
 	}
 })
 
-ipcMain.on('change-main-color', (event, arg) => {
-	all_wins.forEach(win => {
-		if (win.isDestroyed() || win.webContents == event.sender.webContents) return;
-		win.webContents.send('set-main-color', arg)
-	})
-})
 ipcMain.on('edit-launch-setting', (event, arg) => {
 	LaunchSettings.set(arg.key, arg.value);
 })
 ipcMain.on('add-recent-project', (event, path) => {
 	app.addRecentDocument(path);
 })
-ipcMain.on('new-window', (event, path) => {
-	createWindow(true);
+ipcMain.on('dragging-tab', (event, value) => {
+	all_wins.forEach(win => {
+		if (win.isDestroyed() || win.id == event.sender.id) return;
+		win.webContents.send('accept-detached-tab', JSON.parse(value));
+	})
+})
+ipcMain.on('new-window', (event, data, position) => {
+	if (typeof data == 'string') load_project_data = JSON.parse(data);
+	if (position) {
+		position = JSON.parse(position)
+		let place_in_window = all_wins.find(win => {
+			if (win.isDestroyed() || win.webContents == event.sender || win.isMinimized()) return false;
+			let pos = win.getPosition();
+			let size = win.getSize();
+			return (position.offset[0] >= pos[0] && position.offset[0] <= pos[0] + size[0]
+				 && position.offset[1] >= pos[1] && position.offset[1] <= pos[1] + size[1]);
+		})
+		if (place_in_window) {
+			place_in_window.send('load-tab', load_project_data);
+			place_in_window.focus();
+			load_project_data = null;
+		} else {
+			createWindow(true, {
+				maximize: false,
+				position: position.offset
+			});
+		}
+	} else {
+		createWindow(true);
+	}
+})
+ipcMain.on('close-detached-project', async (event, window_id, uuid) => {
+	let window = all_wins.find(win => win.id == window_id);
+	if (window) window.send('close-detached-project', uuid);
 })
 ipcMain.on('request-color-picker', async (event, arg) => {
 	const color = await getColorHexRGB().catch((error) => {
@@ -199,14 +247,29 @@ ipcMain.on('request-color-picker', async (event, arg) => {
 		})
 	}
 })
+ipcMain.on('show-item-in-folder', async (event, path) => {
+	shell.showItemInFolder(path);
+})
 
 app.on('ready', () => {
 
 	createWindow()
 
+	let app_was_loaded = false;
 	ipcMain.on('app-loaded', () => {
 
-		if (process.execPath && process.execPath.match(/electron\.\w+$/)) {
+		if (load_project_data) {
+			all_wins[all_wins.length-1].send('load-tab', load_project_data);
+			load_project_data = null;
+		}
+
+		if (app_was_loaded) {
+			console.log('[Blockbench] App reloaded or new window opened')
+			return;
+		}
+
+		app_was_loaded = true;
+		if (process.execPath && process.execPath.match(/node_modules[\\\/]electron/)) {
 
 			console.log('[Blockbench] App launched in development mode')
 	
@@ -216,6 +279,7 @@ app.on('ready', () => {
 			autoUpdater.autoDownload = false;
 			if (LaunchSettings.get('update_to_prereleases') === true) {
 				autoUpdater.allowPrerelease = true;
+				//autoUpdater.channel = 'beta';
 			}
 	
 			autoUpdater.on('update-available', (a) => {
@@ -223,19 +287,19 @@ app.on('ready', () => {
 				ipcMain.on('allow-auto-update', () => {
 					autoUpdater.downloadUpdate()
 				})
-				orig_win.webContents.send('update-available');
+				if (!orig_win.isDestroyed()) orig_win.webContents.send('update-available', a);
 			})
 			autoUpdater.on('update-downloaded', (a) => {
 				console.log('update-downloaded', a)
-				orig_win.webContents.send('update-downloaded', a)
+				if (!orig_win.isDestroyed()) orig_win.webContents.send('update-downloaded', a)
 			})
 			autoUpdater.on('error', (a) => {
 				console.log('update-error', a)
-				orig_win.webContents.send('update-error', a)
+				if (!orig_win.isDestroyed()) orig_win.webContents.send('update-error', a)
 			})
 			autoUpdater.on('download-progress', (a) => {
 				console.log('update-progress', a)
-				orig_win.webContents.send('update-progress', a)
+				if (!orig_win.isDestroyed()) orig_win.webContents.send('update-progress', a)
 			})
 			autoUpdater.checkForUpdates().catch(err => {})
 		}

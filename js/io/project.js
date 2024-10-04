@@ -1,14 +1,20 @@
 class ModelProject {
-	constructor(options = {}) {
+	constructor(options = {}, uuid) {
 		for (var key in ModelProject.properties) {
 			ModelProject.properties[key].reset(this, true);
 		}
-		this.uuid = guid();
+		this.uuid = uuid || guid();
 		this.selected = false;
 		this.locked = false;
 		this.thumbnail = '';
 
-		this._box_uv = options.format ? options.format.box_uv : false;
+		this._static = Object.freeze({
+			properties: {
+				undo: new UndoSystem()
+			}
+		})
+
+		this.box_uv = options.format ? options.format.box_uv : false;
 		this._texture_width = 16;
 		this._texture_height = 16;
 
@@ -17,39 +23,46 @@ class ModelProject {
 
 		this.save_path = '';
 		this.export_path = '';
+		this.export_options = {};
 		this.added_models = 0;
 
-		this.undo = new UndoSystem();
-		if (isApp) this.BedrockEntityManager = new BedrockEntityManager(this);
 		this.format = options.format instanceof ModelFormat ? options.format : Formats.free;
 		this.mode = 'edit';
+		this.tool = '';
 		this.view_mode = 'textured';
 		this.display_uv = settings.show_only_selected_uv.value ? 'selected_faces' :'selected_elements';
 		this.exploded_view = false;
+		this.mirror_modeling_enabled = false;
 		this.previews = {};
+		this.uv_viewport = {
+			zoom: 1,
+			offset: [0, 0]
+		};
 		this.EditSession = null;
 
-		this.backgrounds = {
-			normal: 		new PreviewBackground({name: 'menu.preview.perspective.normal', lock: null}),
-			ortho_top: 		new PreviewBackground({name: 'direction.top', lock: true}),
-			ortho_bottom: 	new PreviewBackground({name: 'direction.bottom', lock: true}),
-			ortho_south: 	new PreviewBackground({name: 'direction.south', lock: true}),
-			ortho_north: 	new PreviewBackground({name: 'direction.north', lock: true}),
-			ortho_east: 	new PreviewBackground({name: 'direction.east', lock: true}),
-			ortho_west: 	new PreviewBackground({name: 'direction.west', lock: true}),
-		}
+		/*this.backgrounds = {
+			normal: 		new ReferenceImage({name: 'menu.preview.perspective.normal', lock: null}),
+			ortho_top: 		new ReferenceImage({name: 'direction.top', lock: true}),
+			ortho_bottom: 	new ReferenceImage({name: 'direction.bottom', lock: true}),
+			ortho_south: 	new ReferenceImage({name: 'direction.south', lock: true}),
+			ortho_north: 	new ReferenceImage({name: 'direction.north', lock: true}),
+			ortho_east: 	new ReferenceImage({name: 'direction.east', lock: true}),
+			ortho_west: 	new ReferenceImage({name: 'direction.west', lock: true}),
+		}*/
+		this.reference_images = [];
 
 		// Data
 		this.elements = [];
 		this.groups = [];
 		this.selected_elements = [];
 		this.selected_group = null;
-		this.selected_vertices = {};
-		this.selected_faces = [];
+		this.mesh_selection = {};
 		this.textures = [];
 		this.selected_texture = null;
+		this.texture_groups = [];
 		this.outliner = [];
 		this.animations = [];
+		this.animation_controllers = [];
 		this.timeline_animators = [];
 		this.display_settings = {};
 
@@ -64,13 +77,6 @@ class ModelProject {
 	extend() {
 		for (var key in ModelProject.properties) {
 			ModelProject.properties[key].merge(this, object)
-		}
-	}
-	get box_uv() {return Project._box_uv}
-	set box_uv(v) {
-		if (Project._box_uv != v) {
-			Project._box_uv = v;
-			switchBoxUV(v);
 		}
 	}
 	get texture_width() {return this._texture_width}
@@ -101,14 +107,29 @@ class ModelProject {
 			setProjectTitle(name);
 		}
 	}
+	get undo() {
+		return this._static.properties.undo;
+	}
 	get saved() {
 		return this._saved;
 	}
 	set saved(saved) {
 		this._saved = saved;
+
+		// Dispatch an event to allow other scripts to react to the change
+		Blockbench.dispatchEvent('saved_state_changed', { 
+			project: this, 
+			saved: saved
+		});
 		if (Project == this) {
 			setProjectTitle(this.name);
 		}
+	}
+	get geometry_name() {
+		return this.model_identifier;
+	}
+	set geometry_name(val) {
+		this.model_identifier = val;
 	}
 	get model_3d() {
 		return ProjectData[this.uuid].model_3d;
@@ -120,7 +141,19 @@ class ModelProject {
 		return ProjectData[this.uuid].nodes_3d;
 	}
 	getDisplayName() {
-		return this.name || this.geometry_name || this.format.name;
+		return this.name || this.model_identifier || this.format.name;
+	}
+	getProjectMemory() {
+		if (!isApp) return;
+		let path = this.export_path || this.save_path;
+		let data = recent_projects.find(p => p.path == path);
+		return data;
+	}
+	getUVWidth(texture = 0) {
+		return (texture && Format.per_texture_uv_size) ? texture.uv_width : this.texture_width;
+	}
+	getUVHeight(texture = 0) {
+		return (texture && Format.per_texture_uv_size) ? texture.uv_height : this.texture_height;
 	}
 	openSettings() {
 		if (this.selected) BarItems.project_window.click();
@@ -133,14 +166,23 @@ class ModelProject {
 			this.on_next_upen.push(callback);
 		}
 	}
-	select() {
-		if (this === Project) return true;
-		if (this.locked || Project.locked) return false;
-		if (Project) {
-			Project.unselect()
-		} else {
-			Interface.tab_bar.new_tab.visible = false;
-		}
+	saveEditorState() {
+		UVEditor.saveViewportOffset();
+		
+		Preview.all.forEach(preview => {
+			this.previews[preview.id] = {
+				position: preview.camera.position.toArray(),
+				target: preview.controls.target.toArray(),
+				orthographic: preview.isOrtho,
+				zoom: preview.camOrtho.zoom,
+				angle: preview.angle,
+			}
+		})
+
+		Blockbench.dispatchEvent('save_editor_state', {project: this});
+		return this;
+	}
+	loadEditorState() {
 		Project = this;
 		Undo = this.undo;
 		this.selected = true;
@@ -156,47 +198,75 @@ class ModelProject {
 			OutlinerNode.uuids[group.uuid] = group;
 		})
 		Outliner.root = this.outliner;
-		Interface.Panels.outliner.inside_vue.root = this.outliner;
+		Panels.outliner.inside_vue.root = this.outliner;
 
 		UVEditor.vue.elements = this.selected_elements;
 		UVEditor.vue.all_elements = this.elements;
-		UVEditor.vue.selected_vertices = this.selected_vertices;
-		UVEditor.vue.selected_faces = this.selected_faces;
 		UVEditor.vue.box_uv = this.box_uv;
 		UVEditor.vue.display_uv = this.display_uv;
+		BarItems.edit_mode_uv_overlay.value = this.display_uv == 'all_elements';
+		BarItems.edit_mode_uv_overlay.updateEnabledState();
 
-		Interface.Panels.textures.inside_vue.textures = Texture.all;
+		Panels.textures.inside_vue.textures = Texture.all;
+		Panels.textures.inside_vue.texture_groups = TextureGroup.all;
+		Panels.layers.inside_vue.layers = Texture.selected ? Texture.selected.layers : [];
 		scene.add(this.model_3d);
 
-		Interface.Panels.animations.inside_vue.animations = this.animations;
+		Panels.animations.inside_vue.animations = this.animations;
+		Panels.animations.inside_vue.animation_controllers = this.animation_controllers;
 		Timeline.animators = Timeline.vue.animators = [];
 		Animation.selected = null;
+		AnimationController.selected = null;
 		let selected_anim = this.animations.find(anim => anim.selected);
 		if (selected_anim) selected_anim.select();
 		Timeline.animators = Timeline.vue.animators = this.timeline_animators;
 
-		Interface.Panels.variable_placeholders.inside_vue.text = this.variable_placeholders.toString();
-		Interface.Panels.variable_placeholders.inside_vue.buttons.replace(this.variable_placeholder_buttons);
+		Panels.variable_placeholders.inside_vue.text = this.variable_placeholders.toString();
+		Panels.variable_placeholders.inside_vue.buttons.replace(this.variable_placeholder_buttons);
 
-		Interface.Panels.skin_pose.inside_vue.pose = this.skin_pose;
+		Panels.skin_pose.inside_vue.pose = this.skin_pose;
+
+		UVEditor.loadViewportOffset();
+
+		if (settings.save_view_per_tab.value) {
+			Preview.all.forEach(preview => {
+				let data = this.previews[preview.id];
+				if (data) {
+					preview.camera.position.fromArray(data.position);
+					preview.controls.target.fromArray(data.target);
+					preview.setProjectionMode(data.orthographic);
+					if (data.zoom) preview.camOrtho.zoom = data.zoom;
+					if (data.angle) preview.setLockedAngle(data.angle);
+				} else if (preview.default_angle !== undefined) {
+					preview.loadAnglePreset(preview.default_angle);
+				}
+			})
+		}
 
 		Modes.options[this.mode].select();
+		if (BarItems[this.tool] && Condition(BarItems[this.tool].condition)) {
+			BarItems[this.tool].select();
+		}
 
-		BarItems.lock_motion_trail.value = !!Project.motion_trail_lock;
-		BarItems.lock_motion_trail.updateEnabledState();
-		
-		Preview.all.forEach(preview => {
-			let data = this.previews[preview.id];
-			if (data) {
-				preview.camera.position.fromArray(data.position);
-				preview.controls.target.fromArray(data.target);
-				preview.setProjectionMode(data.orthographic);
-				if (data.zoom) preview.camOrtho.zoom = data.zoom;
-				if (data.angle) preview.setLockedAngle(data.angle);
-			} else if (preview.default_angle !== undefined) {
-				setTimeout(() => preview.loadAnglePreset(preview.default_angle), 0);
-			}
-		})
+		BarItems.lock_motion_trail.set(!!Project.motion_trail_lock);
+
+		BarItems.mirror_modeling.set(!!Project.mirror_modeling_enabled);
+
+		Blockbench.dispatchEvent('load_editor_state', {project: this});
+		return this;
+	}
+	select() {
+		if (this === Project) return true;
+		if (this.locked || Project.locked) return false;
+		if (!ModelProject.all.includes(this)) return false;
+		if (Project) {
+			Project.unselect();
+			Blockbench.addFlag('switching_project');
+		} else {
+			Interface.tab_bar.new_tab.visible = false;
+		}
+
+		this.loadEditorState();
 
 		if (this.EditSession) {
 			Interface.Panels.chat.inside_vue.chat_history = this.EditSession.chat_history;
@@ -205,59 +275,86 @@ class ModelProject {
 
 		Blockbench.dispatchEvent('select_project', {project: this});
 
-		Preview.all.forEach(p => {
-			if (p.canvas.isConnected) p.loadBackground()
-		})
 		if (Preview.selected) Preview.selected.occupyTransformer();
 		setProjectTitle(this.name);
 		setStartScreen(!Project);
 		updateInterface();
+		ReferenceImage.updateAll();
 		updateProjectResolution();
+		Validator.validate();
 		Vue.nextTick(() => {
-			loadTextureDraggable();
-
 			if (this.on_next_upen instanceof Array) {
 				this.on_next_upen.forEach(callback => callback());
 				delete this.on_next_upen;
 			}
 		})
+		Blockbench.removeFlag('switching_project');
 		return true;
 	}
+	showContextMenu(event) {
+		if (!this.selected) {
+			this.select()
+		}
+		this.menu.open(event, this);
+		return this;
+	}
+	updateThumbnail() {
+		if (!Format.image_editor) {
+			this.thumbnail = Preview.selected.canvas.toDataURL();
+		} else if (Texture.all.length) {
+			this.thumbnail = Texture.getDefault()?.source;
+		}
+	}
 	unselect(closing) {
-		if (!closing) this.thumbnail = Preview.selected.canvas.toDataURL();
+		if (!closing) {
+			this.updateThumbnail();
+			this.saveEditorState();
+		}
+		
 		Interface.tab_bar.last_opened_project = this.uuid;
 
 		if (Format && typeof Format.onDeactivation == 'function') {
 			Format.onDeactivation()
 		}
 
-		Preview.all.forEach(preview => {
-			this.previews[preview.id] = {
-				position: preview.camera.position.toArray(),
-				target: preview.controls.target.toArray(),
-				orthographic: preview.isOrtho,
-				zoom: preview.camOrtho.zoom,
-				angle: preview.angle,
-			}
-		})
-
 		this.undo.closeAmendEditMenu();
-		Preview.all.forEach(preview => {
-			if (preview.movingBackground) preview.stopMovingBackground();
-		})
+		this.reference_images.forEach(reference => reference.detach());
+		if (ReferenceImageMode.active) ReferenceImageMode.deactivate();
 		if (TextureAnimator.isPlaying) TextureAnimator.stop();
 		this.selected = false;
 		Painter.current = {};
+		Animator.MolangParser.context = {};
 		scene.remove(this.model_3d);
 		OutlinerNode.uuids = {};
+		MirrorModeling.cached_elements = {};
 		Format = 0;
 		Project = 0;
 		Undo = 0;
+		if (Modes.selected) Modes.selected.unselect();
+		Settings.updateSettingsInProfiles();
 
 		OutlinerNode.uuids = {};
 		Outliner.root = [];
 
+		if (closing) {
+			updateInterface();
+		}
+
 		Blockbench.dispatchEvent('unselect_project', {project: this});
+	}
+	closeOnQuit() {
+		try {
+			if (isApp) {
+				updateRecentProjectData();
+			}
+			Blockbench.dispatchEvent('close_project', {on_quit: true});
+
+		} catch (err) {
+			console.error(err);
+		}
+		if (this.EditSession) {
+			this.EditSession.quit();
+		}
 	}
 	async close(force) {
 		if (this.locked) return false;
@@ -270,33 +367,44 @@ class ModelProject {
 		}
 
 		async function saveWarning() {
-			await new Promise(resolve => setTimeout(resolve, 4));
-			if (Project.saved) {
-				return true;
-			} else {
+			return await new Promise((resolve) => {
 				if (isApp) {
-					var answer = electron.dialog.showMessageBoxSync(currentwindow, {
-						type: 'question',
-						buttons: [tl('dialog.save'), tl('dialog.discard'), tl('dialog.cancel')],
-						title: 'Blockbench',
-						message: tl('message.close_warning.message'),
-						noLink: true
-					})
-					if (answer === 0) {
-						BarItems.save_project.trigger();
-					}
-					return answer !== 2;
-				} else {
-					var answer = confirm(tl('message.close_warning.web'))
-					return answer;
+					shell.beep();
 				}
-			}
+				Blockbench.showMessageBox({
+					title: Project.getDisplayName(),
+					message: tl('message.close_warning.message'),
+					buttons: [tl('dialog.save'), tl('dialog.discard'), tl('dialog.cancel')],
+					cancel_on_click_outside: false,
+					width: 472,
+				}, async (answer) => {
+					if (answer === 0) {
+						if (Project.save_path || Project.export_path) {
+							BarItems.save_project.trigger();
+						} else {
+							await BarItems.export_over.click();
+						}
+						await new Promise(resolve => setTimeout(resolve, 4));
+						resolve(Project.saved);
+					} else if (answer == 1) {
+						resolve(true);
+					} else if (answer == 2) {
+						resolve(false);
+					}
+				})
+			});
 		}
 
-		if (force || await saveWarning()) {
-			if (isApp) await updateRecentProjectThumbnail();
-	
-			Blockbench.dispatchEvent('close_project');
+		if (force || Project.saved || await saveWarning()) {
+			try {
+				if (isApp) {
+					updateRecentProjectData();
+				}
+				Blockbench.dispatchEvent('close_project');
+
+			} catch (err) {
+				console.error(err);
+			}
 
 			if (this.EditSession) {
 				this.EditSession.quit();
@@ -305,19 +413,33 @@ class ModelProject {
 			this.unselect(true);
 			Texture.all.forEach(tex => tex.stopWatcher());
 
+			// Clear memory
+			for (let uuid in ProjectData[this.uuid].nodes_3d) {
+				let node_3d = ProjectData[this.uuid].nodes_3d[uuid];
+				if (node_3d.parent) node_3d.parent.remove(node_3d);
+				if (node_3d.geometry) node_3d.geometry.dispose();
+				if (node_3d.outline && node_3d.outline.geometry) {
+					node_3d.outline.geometry.dispose();
+				}
+			}
+
 			let index = ModelProject.all.indexOf(this);
 			ModelProject.all.remove(this);
 			delete ProjectData[this.uuid];
 			Project = 0;
+			
+			await AutoBackup.removeBackup(this.uuid);
 
 			if (last_selected && last_selected !== this) {
 				last_selected.select();
+			} else if (last_selected == 0) {
+				Interface.tab_bar.openNewTab();
 			} else if (ModelProject.all.length) {
 				ModelProject.all[Math.clamp(index, 0, ModelProject.all.length-1)].select();
 			} else {
 				Interface.tab_bar.new_tab.visible = true;
 				Interface.tab_bar.new_tab.select();
-				setStartScreen(true);
+				selectNoProject();
 			}
 
 			return true;
@@ -331,11 +453,16 @@ new Property(ModelProject, 'string', 'name', {
 });
 new Property(ModelProject, 'string', 'parent', {
 	label: 'dialog.project.parent',
-	condition: {formats: ['java_block']
-}});
-new Property(ModelProject, 'string', 'geometry_name', {
+	condition: {features: ['parent_model_id']}
+});
+new Property(ModelProject, 'string', 'model_identifier', {
 	label: 'dialog.project.geoname',
-	condition: () => Format.bone_rig
+	condition: () => Format.model_identifier
+});
+new Property(ModelProject, 'string', 'modded_entity_entity_class', {
+	label: 'dialog.project.modded_entity_entity_class',
+	placeholder: 'Entity',
+	condition: {formats: ['modded_entity']},
 });
 new Property(ModelProject, 'string', 'modded_entity_version', {
 	label: 'dialog.project.modded_entity_version',
@@ -351,14 +478,24 @@ new Property(ModelProject, 'string', 'modded_entity_version', {
 		return options;
 	}
 });
+new Property(ModelProject, 'string', 'credit', {
+	label: 'dialog.project.credit',
+	condition: () => Project.credit && Project.credit !== settings.credit.value
+});
+new Property(ModelProject, 'boolean', 'modded_entity_flip_y', {
+	label: 'dialog.project.modded_entity_flip_y',
+	default: true,
+	condition: {formats: ['modded_entity']}
+});
 new Property(ModelProject, 'boolean', 'ambientocclusion', {
 	label: 'dialog.project.ao',
 	default: true,
-	condition: {formats: ['java_block']}
+	condition: {features: ['vertex_color_ambient_occlusion']}
 });
 new Property(ModelProject, 'boolean', 'front_gui_light', {
 	exposed: false,
-	condition: () => Format.display_mode});
+	condition: () => Format.display_mode
+});
 new Property(ModelProject, 'vector', 'visible_box', {
 	exposed: false,
 	default: [1, 1, 0]
@@ -374,30 +511,71 @@ new Property(ModelProject, 'number', 'shadow_size', {
 	condition: {formats: ['optifine_entity']},
 	default: 1
 });
+new Property(ModelProject, 'string', 'skin_model', {
+	exposed: false,
+	condition: {formats: ['skin']},
+	default: 'steve'
+});
 new Property(ModelProject, 'string', 'skin_pose', {
 	exposed: false,
 	condition: {formats: ['skin']},
 	default: 'none'
 });
+new Property(ModelProject, 'enum', 'bedrock_animation_mode', {
+	exposed: false,
+	values: ['entity', 'attachable_first'],
+	condition: {formats: ['bedrock']},
+	default: 'entity'
+});
 new Property(ModelProject, 'array', 'timeline_setups', {
 	exposed: false,
 	condition: () => Format.animation_mode,
+});
+new Property(ModelProject, 'object', 'unhandled_root_fields', {
+	exposed: false
 });
 
 
 ModelProject.all = [];
 
-
 let Project = 0;
 
 let ProjectData = {};
 
-// Setup ModelProject for loaded project
-function setupProject(format) {
-	if (typeof format == 'string' && Formats[format]) format = Formats[format];
-	new ModelProject({format}).select();
+ModelProject.prototype.menu = new Menu([
+	new MenuSeparator('settings'),
+	'project_window',
+	new MenuSeparator('manage'),
+	'open_model_folder',
+	'duplicate_project',
+	'convert_project',
+	'close_project',
+	new MenuSeparator('save'),
+	'save_project',
+	'save_project_as',
+	'save_project_incremental',
+	'export_over',
+	'share_model',
+	new MenuSeparator('overview'),
+	'tab_overview',
+])
 
-	Modes.options.edit.select();
+// Setup ModelProject for loaded project
+function setupProject(format, uuid) {
+	if (typeof format == 'string' && Formats[format]) format = Formats[format];
+	if (uuid && ModelProject.all.find(project => project.uuid == uuid)) uuid = null;
+	new ModelProject({format}, uuid).select();
+
+	if (format.edit_mode) {
+		Modes.options.edit.select();
+	} else if (format.paint_mode) {
+		Modes.options.paint.select();
+	} else if (format.animation_mode) {
+		Modes.options.animate.select();
+	}
+	if (typeof Format.onSetup == 'function') {
+		Format.onSetup(Project, false)
+	}
 	Blockbench.dispatchEvent('setup_project');
 	return true;
 }
@@ -406,9 +584,47 @@ function newProject(format) {
 	if (typeof format == 'string' && Formats[format]) format = Formats[format];
 	new ModelProject({format}).select();
 
-	Modes.options.edit.select();
+	if (format.edit_mode) {
+		Modes.options.edit.select();
+	} else if (format.paint_mode) {
+		Modes.options.paint.select();
+	}
+	if (typeof Format.onSetup == 'function') {
+		Format.onSetup(Project, true)
+	}
 	Blockbench.dispatchEvent('new_project');
 	return true;
+}
+function selectNoProject() {
+	setStartScreen(true);
+	
+	Project = 0;
+	Undo = null;
+
+	// Setup Data
+	OutlinerNode.uuids = {};
+	Outliner.root = [];
+	Interface.Panels.outliner.inside_vue.root = [];
+
+	UVEditor.vue.elements = [];
+	UVEditor.vue.all_elements = [];
+
+	Interface.Panels.textures.inside_vue.textures = [];
+	Interface.Panels.textures.inside_vue.texture_groups = [];
+
+	Panels.animations.inside_vue.animations = [];
+	Panels.animations.inside_vue.animation_controllers = [];
+	Timeline.animators = Timeline.vue.animators = [];
+	Animation.selected = null;
+	AnimationController.selected = null;
+	Timeline.animators = Timeline.vue.animators = [];
+
+	Interface.Panels.variable_placeholders.inside_vue.text = '';
+	Interface.Panels.variable_placeholders.inside_vue.buttons.empty();
+
+	Interface.Panels.skin_pose.inside_vue.pose = '';
+
+	Blockbench.dispatchEvent('select_no_project', {});
 }
 function updateTabBarVisibility() {
 	let hidden = Settings.get('hide_tab_bar') && Interface.tab_bar.tabs.length < 2;
@@ -422,7 +638,9 @@ function setProjectResolution(width, height, modify_uv) {
 		modify_uv = false;
 	}
 
-	Undo.initEdit({uv_mode: true, elements: Cube.all, uv_only: true})
+	let textures = Format.per_texture_uv_size ? Texture.all : undefined;
+
+	Undo.initEdit({uv_mode: true, elements: Cube.all, uv_only: true, textures});
 
 	let old_res = {
 		x: Project.texture_width,
@@ -449,8 +667,8 @@ function setProjectResolution(width, height, modify_uv) {
 					})
 				}
 
-			} else if (Project.box_uv) {
-				element.uv_offset[axis] *= multiplier[axis];
+			} else if (element.box_uv) {
+				element.uv_offset[axis] = Math.floor(element.uv_offset[axis] * multiplier[axis]);
 			} else {
 				for (let face in element.faces) {
 					let {uv} = element.faces[face];
@@ -466,6 +684,11 @@ function setProjectResolution(width, height, modify_uv) {
 			Outliner.elements.forEach(element => shiftElement(element, 1));
 		}
 	}
+	textures && textures.forEach(tex => {
+		tex.uv_width = Project.texture_width;
+		tex.uv_height = Project.texture_height;
+	});
+
 	Undo.finishEdit('Changed project resolution')
 	Canvas.updateAllUVs()
 	if (selected.length) {
@@ -473,22 +696,24 @@ function setProjectResolution(width, height, modify_uv) {
 	}
 }
 function updateProjectResolution() {
-	if (Interface.Panels.uv) {
-		UVEditor.vue.project_resolution.replace([Project.texture_width, Project.texture_height]);
-		UVEditor.vue.updateSize()
+	if (!Format.per_texture_uv_size) {
+		if (Interface.Panels.uv) {
+			UVEditor.vue.uv_resolution.replace([Project.texture_width, Project.texture_height]);
+			UVEditor.vue.updateSize()
+		}
+		if (Texture.selected) {
+			// Update animated textures
+			Texture.selected.height++;
+			Texture.selected.height--;
+		}
 	}
 	Canvas.uvHelperMaterial.uniforms.DENSITY.value = Project.texture_width / 32;
-	if (Texture.selected) {
-		// Update animated textures
-		Texture.selected.height++;
-		Texture.selected.height--;
-	}
 	Blockbench.dispatchEvent('update_project_resolution', {project: Project});
 }
 
 function setStartScreen(state) {
 	document.getElementById('start_screen').style.display = state ? 'block' : 'none';
-	document.getElementById('work_screen').style.display = state ? 'none' : 'grid';
+	Interface.work_screen.style.display = state ? 'none' : 'grid';
 }
 
 onVueSetup(() => {
@@ -517,6 +742,7 @@ onVueSetup(() => {
 			Project = 0;
 			Interface.tab_bar.new_tab.selected = true;
 			setProjectTitle(ModelProject.all.length ? tl('projects.new_tab') : null);
+			updateInterface();
 		},
 		openSettings() {}
 	}
@@ -527,7 +753,7 @@ onVueSetup(() => {
 			drag_target_index: null,
 			drag_position_index: null,
 			close_tab_label: tl('projects.close_tab'),
-			search_tabs_label: tl('generic.search'),
+			search_tabs_label: tl('action.tab_overview'),
 			last_opened_project: '',
 			new_tab
 		},
@@ -546,10 +772,10 @@ onVueSetup(() => {
 				this.last_opened_project = Project.uuid;
 				this.new_tab.visible = true;
 				this.new_tab.select();
-				setStartScreen(true);
+				selectNoProject();
 			},
-			searchTabs() {
-				ActionControl.select('tab: ');
+			tabOverview() {
+				BarItems.tab_overview.trigger();
 			},
 			mouseDown(tab, e1) {
 				convertTouchEvent(e1);
@@ -559,12 +785,22 @@ onVueSetup(() => {
 					this.thumbnail.remove();
 					delete this.thumbnail;
 				}
-				if (e1.button == 1) return;
+				if (e1.button == 1) {
+					function off(e2) {
+						removeEventListeners(document, 'mouseup', off);
+						delete tab.middle_mouse_pressing;
+					}
+					tab.middle_mouse_pressing = true;
+					addEventListeners(document, 'mouseup', off, {passive: false});
+					return;
+				}
 				
 				let scope = this;
 				let active = false;
 				let timeout;
 				let last_event = e1;
+				let outside_tab_bar = false;
+				let drag_out_window_helper;
 
 				let tab_node = e1.target;
 				if (!tab_node.classList.contains('project_tab') || ModelProject.all.indexOf(tab) < 0) return;
@@ -600,6 +836,29 @@ onVueSetup(() => {
 
 						let index_offset = Math.trunc((e2.clientX - e1.clientX) / tab_node.clientWidth);
 						scope.drag_position_index = scope.drag_target_index + index_offset;
+
+						// Detach tab
+						let outside_tab_bar_before = outside_tab_bar; 
+						outside_tab_bar = isApp && Math.abs(e2.clientY - 42) > 60 || e2.clientX < 2 || e2.clientX > window.innerWidth;
+
+						if (outside_tab_bar !== outside_tab_bar_before) {
+							//setStartScreen(outside_tab_bar);
+							if (!drag_out_window_helper) {
+								drag_out_window_helper = Interface.createElement('div', {id: 'drag_out_window_helper'}, Interface.createElement('div', {}, tab.name));
+							}
+							if (outside_tab_bar) {
+								document.body.append(drag_out_window_helper);
+							} else {
+								document.body.removeChild(drag_out_window_helper);
+							}
+							tab_node.style.visibility = outside_tab_bar ? 'hidden' : 'visible';
+							ipcRenderer.send('dragging-tab', outside_tab_bar);
+
+						}
+						if (outside_tab_bar) {
+							drag_out_window_helper.style.left = `${e2.clientX}px`;
+							drag_out_window_helper.style.top = `${e2.clientY}px`;
+						}
 					}
 					last_event = e2;
 				}
@@ -614,7 +873,24 @@ onVueSetup(() => {
 
 					if (Blockbench.isTouch) clearTimeout(timeout);
 
-					if (active && !open_menu) {
+					
+					if (isApp && outside_tab_bar && !tab.EditSession) {
+						let project = Codecs.project.compile({editor_state: true, history: true, uuids: true, bitmaps: true, raw: true})
+						let pos = currentwindow.getPosition()
+						project.detached_uuid = Project.uuid;
+						project.detached_window_id = currentwindow.id;
+						ipcRenderer.send('dragging-tab', false);
+						ipcRenderer.send('new-window', JSON.stringify(project), JSON.stringify({
+							offset: [
+								pos[0] + e2.clientX,
+								pos[1] + e2.clientY,
+							]
+						}));
+						drag_out_window_helper.remove();
+						tab_node.style.visibility = null;
+						tab.detached = true;
+
+					} else if (active && !open_menu) {
 						convertTouchEvent(e2);
 						let index_offset = Math.trunc((e2.clientX - e1.clientX) / tab_node.clientWidth);
 						if (index_offset) {
@@ -640,7 +916,7 @@ onVueSetup(() => {
 				}
 			},
 			mouseUp(tab, e1) {
-				if (e1.button === 1) {
+				if (e1.button === 1 && tab.middle_mouse_pressing) {
 					tab.close()
 				}
 			},
@@ -658,6 +934,7 @@ onVueSetup(() => {
 					img.src = project.thumbnail;
 					img.attributes.width = '240px';
 					img.className = 'project_thumbnail';
+					if (project.format.image_editor) img.classList.add('pixelated');
 					let offset = $(event.target).offset();
 					img.style.left = (offset.left) + 'px';
 					img.style.top = (offset.top + event.target.clientHeight+2) + 'px';
@@ -670,6 +947,12 @@ onVueSetup(() => {
 						delete this.thumbnail;
 						delete this.thumbnail_timeout;
 					}, 80)
+				}
+			},
+			mousewheelBar(event) {
+				if (event.deltaY) {
+					event.preventDefault();
+					this.$refs.tab_bar_list.scrollLeft += event.deltaY;
 				}
 			}
 		},
@@ -693,17 +976,18 @@ BARS.defineActions(function() {
 		click: function () {
 
 			let form = {
-				format: {type: 'info', label: 'data.format', text: Format.name||'unknown'}
+				format: {type: 'info', label: 'data.format', text: Format.name||'unknown', description: Format.description}
 			}
 			
 			for (var key in ModelProject.properties) {
 				let property = ModelProject.properties[key];
-				if (property.exposed == false || !Condition(property.condition)) continue;
+				if (property.exposed === false || !Condition(property.condition)) continue;
 
 				let entry = form[property.name] = {
 					label: property.label,
 					description: property.description,
 					value: Project[property.name],
+					placeholder: property.placeholder,
 					type: property.type
 				}
 				if (property.type == 'boolean') entry.type = 'checkbox';
@@ -714,8 +998,13 @@ BARS.defineActions(function() {
 				}
 			}
 
+			if (form.name && (Project.save_path || Project.export_path || Format.image_editor) && !Format.legacy_editable_file_name) {
+				delete form.name;
+			}
+
 			form.uv_mode = {
-				label: 'dialog.project.uv_mode',
+				label: 'dialog.project.default_uv_mode',
+				description: 'dialog.project.default_uv_mode.description',
 				type: 'select',
 				condition: Format.optional_box_uv,
 				options: {
@@ -748,11 +1037,11 @@ BARS.defineActions(function() {
 						Project.texture_width != texture_width ||
 						Project.texture_height != texture_height
 					) {
-						if (!Project.box_uv && !box_uv
-							&& (Project.texture_width != texture_width
-							|| Project.texture_height != texture_height)
+						// Adjust UV Mapping if resolution changed
+						if (!Project.box_uv && !box_uv && !Format.per_texture_uv_size &&
+							(Project.texture_width != texture_width || Project.texture_height != texture_height)
 						) {
-							save = Undo.initEdit({uv_only: true, elements: [...Cube.all, ...Mesh.all], uv_mode: true})
+							save = Undo.initEdit({elements: [...Cube.all, ...Mesh.all], uv_only: true, uv_mode: true})
 							Cube.all.forEach(cube => {
 								for (var key in cube.faces) {
 									var uv = cube.faces[key].uv;
@@ -771,7 +1060,20 @@ BARS.defineActions(function() {
 									}
 								}
 							})
-						} else {
+						}
+						// Convert UV mode per element
+						if (Project.box_uv != box_uv &&
+							((box_uv && !Cube.all.find(cube => cube.box_uv)) ||
+							(!box_uv && !Cube.all.find(cube => !cube.box_uv)))
+						) {
+							if (!save) {
+								save = Undo.initEdit({elements: Cube.all, uv_only: true, uv_mode: true})
+							}
+							Cube.all.forEach(cube => {
+								cube.setUVMode(box_uv);
+							})
+						}
+						if (!save) {
 							save = Undo.initEdit({uv_mode: true})
 						}
 						Project.texture_width = texture_width;
@@ -785,6 +1087,8 @@ BARS.defineActions(function() {
 					for (var key in ModelProject.properties) {
 						ModelProject.properties[key].merge(Project, formResult);
 					}
+					Project.name = Project.name.trim();
+					Project.model_identifier = Project.model_identifier.trim();
 
 					if (save) {
 						Undo.finishEdit('Change project UV settings')
@@ -820,6 +1124,29 @@ BARS.defineActions(function() {
 			Project.close();
 		}
 	})
+	new Action('duplicate_project', {
+		icon: 'file_copy',
+		category: 'file',
+		condition: () => Project && (!Project.EditSession || Project.EditSession.hosting),
+		click: function () {
+			let selected_texture_uuid = Texture.selected?.uuid
+			let model = Codecs.project.compile({raw: true});
+			setupProject(Format)
+			Codecs.project.parse(model);
+
+			function copyfyName(name) {
+				if (!name) return name;
+				let index = name.lastIndexOf('.');
+				if (index == -1) return name;
+				let main = name.substring(0, index);
+				let ext = name.substring(index);
+				return main + ' - Copy' + ext;
+			}
+			Project.name = copyfyName(Project.name);
+
+			Texture.all.find(t => t.uuid == selected_texture_uuid)?.select();
+		}
+	})
 	new Action('convert_project', {
 		icon: 'fas.fa-file-import',
 		category: 'file',
@@ -828,8 +1155,9 @@ BARS.defineActions(function() {
 
 			var options = {};
 			for (var key in Formats) {
-				if (key !== Format.id && key !== 'skin') {
-					options[key] = Formats[key].name;
+				let format = Formats[key]
+				if (key !== Format.id && format.can_convert_to) {
+					options[key] = format.name;
 				}
 			}
 
@@ -838,24 +1166,110 @@ BARS.defineActions(function() {
 				title: 'dialog.convert_project.title',
 				width: 540,
 				form: {
-					text:    {type: 'info', text: 'dialog.convert_project.text'},
-					current: {type: 'info', label: 'dialog.convert_project.current_format', text: Format.name || '-'},
-					format:  {
+					text1:		{type: 'info', text: 'dialog.convert_project.text1'},
+					text2:		{type: 'info', text: 'dialog.convert_project.text2'},
+					text3:		{type: 'info', text: 'dialog.convert_project.text3'},
+					current: 	{type: 'info', label: 'dialog.convert_project.current_format', text: Format.name || '-'},
+					format:  	{
 						label: 'data.format',
 						type: 'select',
-						default: Format.id,
 						options,
 					},
+					create_copy: {type: 'checkbox', label: 'dialog.convert_project.create_copy', value: true}
 				},
 				onConfirm: function(formResult) {
 					var format = Formats[formResult.format]
-					if (format && format != Format) {
-						format.convertTo()
+					if (!format || format == Format) return;
+					
+					if (formResult.create_copy) {
+						let selected_texture_uuid = Texture.selected?.uuid
+						let model = Codecs.project.compile({raw: true});
+						setupProject(Format)
+						Codecs.project.parse(model);
+						if (Project.name) Project.name += ' - Converted';
+						Texture.all.find(t => t.uuid == selected_texture_uuid)?.select();
 					}
-					dialog.hide()
+					
+					format.convertTo()
 				}
 			})
 			dialog.show()
+		}
+	})
+	new Action('switch_tabs', {
+		icon: 'swap_horiz',
+		category: 'file',
+		keybind: new Keybind({key: 9, ctrl: true}, {reverse_order: 'shift'}),
+		variations: {
+			reverse_order: {name: 'action.switch_tabs.reverse_order'}
+		},
+		condition: () => ModelProject.all.length > 1,
+		click(event) {
+			let index = ModelProject.all.indexOf(Project);
+			let target;
+			if (this.keybind.additionalModifierTriggered(event) == 'reverse_order') {
+				target = ModelProject.all[index-1] || ModelProject.all.last();
+			} else {
+				target = ModelProject.all[index+1] || ModelProject.all[0];
+			}
+			if (target) target.select();
+		}
+	})
+	new Action('tab_overview', {
+		icon: 'view_module',
+		category: 'file',
+		condition: () => ModelProject.all.length,
+		click(event) {
+			if (Project) Project.updateThumbnail();
+
+			let dialog = new ShapelessDialog('tab_overview', {
+				component: {
+					data() {return {
+						search_term: '',
+						projects: ModelProject.all
+					}},
+					methods: {
+						select(project) {
+							Dialog.open.confirm();
+							project.select();
+						},
+						isPixelArt(project) {
+							return project.format.image_editor && project.textures[0]?.height < 190;
+						}
+					},
+					computed: {
+						filtered_projects() {
+							if (!this.search_term) return this.projects;
+							let term = this.search_term.toLowerCase();
+							return this.projects.filter(project => {
+								return project.name.toLowerCase().includes(term) || project.model_identifier?.toLowerCase().includes(term);
+							})
+						}
+					},
+					template: `
+						<div id="tab_overview">
+							<div id="tab_overview_search">
+								<search-bar id="tab_overview_search_bar" v-model="search_term"></search-bar>
+							</div>
+							<ul id="tab_overview_grid">
+								<li v-for="project in filtered_projects" @mousedown="select(project)" :class="{pixel_art: isPixelArt(project)}">
+									<img :src="project.thumbnail" :style="{visibility: project.thumbnail ? 'unset' : 'hidden'}">
+									{{ project.name }}
+								</li>
+							</ul>
+						</div>
+					`
+				},
+				onConfirm() {
+					let projects = this.content_vue.filtered_projects;
+					if (this.content_vue.search_term) {
+						projects[0].select();
+					}
+				}
+			}).show();
+			Vue.nextTick(() => {
+				document.querySelector('#tab_overview_search input')?.focus()
+			})
 		}
 	})
 })

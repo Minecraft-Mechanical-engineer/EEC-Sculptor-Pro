@@ -1,6 +1,26 @@
 //Import
 function setupDragHandlers() {
 	Blockbench.addDragHandler(
+		'texture',
+		{extensions: ['png', 'tga'], propagate: true, readtype: 'image', condition: () => !Dialog.open},
+		function(files, event) {
+			loadImages(files, event)
+		}
+	)
+	Blockbench.addDragHandler(
+		'reference_image',
+		{extensions: ReferenceImage.supported_extensions, propagate: true, readtype: 'image', condition: () => Project && !Dialog.open},
+		function(files, event) {
+			files.map(file => {
+				return new ReferenceImage({
+					source: file.content,
+					name: file.name || 'Reference'
+				}).addAsReference(true);
+			}).last().select();
+			ReferenceImageMode.activate();
+		}
+	)
+	Blockbench.addDragHandler(
 		'model',
 		{extensions: Codec.getAllExtensions},
 		function(files) {
@@ -32,24 +52,6 @@ function setupDragHandlers() {
 			})
 		}
 	)
-	Blockbench.addDragHandler(
-		'texture',
-		{extensions: ['png', 'tga'], propagate: true, readtype: 'image', condition: () => Project && !Dialog.open},
-		function(files, event) {
-			var texture_li = $(event.target).parents('li.texture')
-			if (texture_li.length) {
-				var tex = Texture.all.findInArray('uuid', texture_li.attr('texid'))
-				if (tex) {
-					tex.fromFile(files[0])
-					TickUpdates.selection = true;
-					return;
-				}
-			}
-			files.forEach(function(f) {
-				new Texture().fromFile(f).add().fillParticle()
-			})
-		}
-	)
 }
 
 function loadModelFile(file) {
@@ -73,6 +75,11 @@ function loadModelFile(file) {
 		}
 	}
 
+	// Image
+	for (let id in Codecs) {
+		let success = loadIfCompatible(Codecs[id], 'image', file.content);
+		if (success) return;
+	}
 	// Text
 	for (let id in Codecs) {
 		let success = loadIfCompatible(Codecs[id], 'text', file.content);
@@ -85,17 +92,196 @@ function loadModelFile(file) {
 		if (success) return;
 	}
 }
+
+async function loadImages(files, event) {
+	let options = {};
+	let texture_li = event && $(event.target).parents('li.texture');
+	let replace_texture;
+
+	let img = new Image();
+	await new Promise((resolve, reject) => {
+		img.src = isApp ? files[0].path : files[0].content;
+		img.onload = resolve;
+		img.onerror = reject;
+	})
+
+	// Options
+	if (event == undefined) {
+		// When using "Open with > Blockbench", ensure these are listed first
+		options.edit = null;
+	}
+	if (Project && texture_li && texture_li.length) {
+		replace_texture = Texture.all.findInArray('uuid', texture_li.attr('texid'))
+		if (replace_texture) {
+			options.replace_texture = 'menu.texture.change';
+		}
+	}
+	if (Project) {
+		if (!Format.image_editor && Condition(Panels.textures.condition)) {
+			options.texture = 'action.import_texture';
+		}
+		if (Modes.paint && document.querySelector('#UVEditor:hover') && Texture.selected) {
+			options.layer = 'data.layer';
+		}
+	}
+	options.edit = 'message.load_images.edit_image';
+	if (Project) {
+		options.reference_image = 'data.reference_image';
+	}
+	if (img.naturalHeight == img.naturalWidth && [64, 128].includes(img.naturalWidth)) {
+		options.minecraft_skin = 'format.skin';
+	}
+	if (Project && Condition(Panels.textures.condition)) {
+		if (Format.image_editor) {
+			options.texture = 'message.load_images.add_image';
+		} else {
+			options.texture = 'action.import_texture';
+		}
+	}
+	if (Project && (!Project.box_uv || Format.optional_box_uv)) {
+		options.extrude_with_cubes = 'dialog.extrude.title';
+	}
+
+	function doLoadImages(method) {
+		if (method == 'texture') {
+			let new_textures = [];
+			Undo.initEdit({textures: new_textures});
+			files.forEach(function(f, i) {
+				let tex = new Texture().fromFile(f).add(false, true).fillParticle();
+				new_textures.push(tex);
+				if (Format.image_editor && i == 0) {
+					tex.select();
+				}
+			});
+			Undo.finishEdit('Add texture');
+
+		} else if (method == 'replace_texture') {
+			replace_texture.fromFile(files[0])
+			updateSelection();
+			
+		} else if (method == 'layer') {
+			let texture = Texture.getDefault();
+			let frame = new CanvasFrame(img);
+			Undo.initEdit({textures: [texture], bitmap: true});
+			if (!texture.layers_enabled) {
+				texture.activateLayers(false);
+			}
+			let layer = new TextureLayer({name: files[0].name, offset: [0, 0]}, texture);
+			let image_data = frame.ctx.getImageData(0, 0, frame.width, frame.height);
+			layer.setSize(frame.width, frame.height);
+			layer.ctx.putImageData(image_data, 0, 0);
+			texture.layers.push(layer);
+			layer.center();
+			layer.select();
+			layer.setLimbo();
+			texture.updateLayerChanges(true);
+
+			Undo.finishEdit('Add image as layer');
+			updateInterfacePanels();
+			BARS.updateConditions();
+			BarItems.move_layer_tool.select();
+			
+		} else if (method == 'reference_image') {
+			
+			files.map(file => {
+				return new ReferenceImage({
+					source: file.content,
+					name: file.name || 'Reference'
+				}).addAsReference(true);
+			}).last().select();
+			ReferenceImageMode.activate();
+			
+		} else if (method == 'edit') {
+			Codecs.image.load(files, files[0].path, [img.naturalWidth, img.naturalHeight]);
+			
+		} else if (method == 'minecraft_skin') {
+			Formats.skin.setup_dialog.show();
+			Formats.skin.setup_dialog.setFormValues({
+				texture: files[0]
+			})
+
+		} else if (method == 'extrude_with_cubes') {
+			Extruder.dialog.show();
+			Extruder.drawImage(files[0]);
+		}
+	}
+
+	let all_methods = Object.keys(options);
+	if (all_methods.length == 1) {
+		doLoadImages(all_methods[0]);
+
+	} else if (all_methods.length) {
+		let icons = {
+			replace_texture: 'file_upload',
+			texture: 'library_add',
+			layer: 'new_window',
+			reference_image: 'wallpaper',
+			edit: 'draw',
+			minecraft_skin: 'icon-player',
+			extrude_with_cubes: 'eject',
+		};
+		let commands = {};
+		for (let id in options) {
+			commands[id] = {text: options[id], icon: icons[id]};
+		}
+		let title = tl('message.load_images.title');
+		let message = `${files[0].name}`;
+		if (files.length > 1) message += ` (${files.length})`;
+		Blockbench.showMessageBox({
+			id: 'load_images',
+			commands,
+			title, message,
+			icon: img,
+			buttons: ['dialog.cancel'],
+		}, result => {
+			doLoadImages(result);
+		})
+	}
+}
+
 //Extruder
-var Extruder = {
-	drawImage: function(file) {
+const Extruder = {
+	dialog: new Dialog({
+		id: 'image_extruder',
+		title: 'dialog.extrude.title',
+		buttons: ['dialog.confirm', 'dialog.cancel'],
+		part_order: ['form', 'lines'],
+		form: {
+			mode: {
+				label: 'dialog.extrude.mode',
+				type: 'select',
+				options: {
+					areas: 'dialog.extrude.mode.areas',
+					lines: 'dialog.extrude.mode.lines',
+					columns: 'dialog.extrude.mode.columns',
+					pixels: 'dialog.extrude.mode.pixels'
+				}
+			},
+			orientation: {
+				label: 'dialog.extrude.orientation',
+				type: 'select',
+				options: {
+					upright: 'dialog.extrude.orientation.upright',
+					flat: 'dialog.extrude.orientation.flat',
+				}
+			},
+			scan_tolerance: {
+				label: 'dialog.extrude.opacity',
+				type: 'range',
+				min: 1, max: 255, value: 255, step: 1,
+				editable_range_label: true
+			}
+		},
+		lines: [
+			`<canvas height="256" width="256" id="extrusion_canvas" class="checkerboard"></canvas>`
+		],
+		onConfirm(formResult) {
+			Extruder.startConversion(formResult);
+		}
+	}),
+	drawImage(file) {
 		Extruder.canvas = $('#extrusion_canvas').get(0)
 		var ctx = Extruder.canvas.getContext('2d')
-
-		setProgressBar('extrusion_bar', 0)
-		$('#scan_tolerance').on('input', function() {
-			$('#scan_tolerance_label').text($(this).val())
-		})
-		showDialog('image_extruder')
 
 		Extruder.ext_img = new Image()
 		Extruder.ext_img.src = isApp ? file.path.replace(/#/g, '%23') : file.content
@@ -127,18 +313,13 @@ var Extruder = {
 				ctx.lineTo(256 + p, 0.5 + x + p);
 			}
 
-			ctx.strokeStyle = "black";
+			ctx.strokeStyle = CustomTheme.data.colors.grid;
 			ctx.stroke();
 		}
-
-		//Grid
 	},
-	startConversion: function() {
-		var scan_mode = $('select#scan_mode option:selected').attr('id') /*areas, lines, columns, pixels*/
-		var isNewProject = elements.length === 0;
-
-		var pixel_opacity_tolerance = parseInt($('#scan_tolerance').val())
-
+	startConversion(formResult) {
+		var scan_mode = formResult.mode;
+		var pixel_opacity_tolerance = Math.round(formResult.scan_tolerance);
 
 		//Undo
 		Undo.initEdit({elements: selected, outliner: true, textures: []})
@@ -251,21 +432,38 @@ var Extruder = {
 						}
 						draw_y++;
 					}
+
+					// Generate cube
+					let from, to, faces;
+					if (formResult.orientation == 'upright')  {
+						from = [rect.x*scale_i, 16 - (rect.y2+1)*scale_i, 0];
+						to = [(rect.x2+1)*scale_i, 16 - rect.y*scale_i, scale_i];
+						faces = {
+							south:	{uv: [rect.x*uv_scale_x, rect.y*uv_scale_y, (rect.x2+1)*uv_scale_x, (rect.y2+1)*uv_scale_y], texture: texture},
+							north:	{uv: [(rect.x2+1)*uv_scale_x, rect.y*uv_scale_y, rect.x*uv_scale_x, (rect.y2+1)*uv_scale_y], texture: texture},
+							up:		{uv: [rect.x*uv_scale_x, rect.y*uv_scale_y, (rect.x2+1)*uv_scale_x, (rect.y+1)*uv_scale_y], texture: texture},
+							down:	{uv: [rect.x*uv_scale_x, rect.y2*uv_scale_y, (rect.x2+1)*uv_scale_x, (rect.y2+1)*uv_scale_y], texture: texture},
+							east:	{uv: [rect.x2*uv_scale_x, rect.y*uv_scale_y, (rect.x2+1)*uv_scale_x, (rect.y2+1)*uv_scale_y], texture: texture},
+							west:	{uv: [rect.x*uv_scale_x, rect.y*uv_scale_y, (rect.x+1)*uv_scale_x, (rect.y2+1)*uv_scale_y], texture: texture},
+						};
+					} else {
+						from = [rect.x*scale_i, 0, rect.y*scale_i];
+						to = [(rect.x2+1)*scale_i, scale_i, (rect.y2+1)*scale_i];
+						faces = {
+							up:		{uv: [rect.x*uv_scale_x, rect.y*uv_scale_y, (rect.x2+1)*uv_scale_x, (rect.y2+1)*uv_scale_y], texture: texture},
+							down:	{uv: [rect.x*uv_scale_x, (rect.y2+1)*uv_scale_y, (rect.x2+1)*uv_scale_x, rect.y*uv_scale_y], texture: texture},
+							north:	{uv: [(rect.x2+1)*uv_scale_x, rect.y*uv_scale_y, rect.x*uv_scale_x, (rect.y+1)*uv_scale_y], texture: texture},
+							south:	{uv: [rect.x*uv_scale_x, rect.y2*uv_scale_y, (rect.x2+1)*uv_scale_x, (rect.y2+1)*uv_scale_y], texture: texture},
+							east:	{uv: [rect.x2*uv_scale_x, rect.y*uv_scale_y, (rect.x2+1)*uv_scale_x, (rect.y2+1)*uv_scale_y], texture: texture, rotation: 90},
+							west:	{uv: [rect.x*uv_scale_x, rect.y*uv_scale_y, (rect.x+1)*uv_scale_x, (rect.y2+1)*uv_scale_y], texture: texture, rotation: 270},
+						};
+					}
 					var current_cube = new Cube({
 						name: cube_name+'_'+cube_nr,
-						autouv: 0,
-						from: [rect.x*scale_i, 0, rect.y*scale_i],
-						to: [(rect.x2+1)*scale_i, scale_i, (rect.y2+1)*scale_i],
-						faces: {
-							up:		{uv:[rect.x*uv_scale_x, rect.y*uv_scale_y, (rect.x2+1)*uv_scale_x, (rect.y2+1)*uv_scale_y], texture: texture},
-							down:	{uv:[rect.x*uv_scale_x, (rect.y2+1)*uv_scale_y, (rect.x2+1)*uv_scale_x, rect.y*uv_scale_y], texture: texture},
-							north:	{uv:[(rect.x2+1)*uv_scale_x, rect.y*uv_scale_y, rect.x*uv_scale_x, (rect.y+1)*uv_scale_y], texture: texture},
-							south:	{uv:[rect.x*uv_scale_x, rect.y2*uv_scale_y, (rect.x2+1)*uv_scale_x, (rect.y2+1)*uv_scale_y], texture: texture},
-							east:	{uv:[rect.x2*uv_scale_x, rect.y*uv_scale_y, (rect.x2+1)*uv_scale_x, (rect.y2+1)*uv_scale_y], texture: texture, rotation: 90},
-							west:	{uv:[rect.x*uv_scale_x, rect.y*uv_scale_y, (rect.x+1)*uv_scale_x, (rect.y2+1)*uv_scale_y], texture: texture, rotation: 270},
-						}
-					}).init()
-					selected.push(current_cube)
+						autouv: 0, box_uv: false,
+						from, to, faces
+					}).init();
+					selected.push(current_cube);
 					cube_nr++;
 				}
 
@@ -280,149 +478,30 @@ var Extruder = {
 		})
 
 		Undo.finishEdit('Add extruded texture', {elements: selected, outliner: true, textures: [Texture.all[Texture.all.length-1]]})
-
-		hideDialog()
 	}
-}
-//Export
-function uploadSketchfabModel() {
-	if (elements.length === 0 || !Format) {
-		return;
-	}
-	let tag_suggestions = ['low-poly', 'pixel-art'];
-	if (Format.id !== 'free') tag_suggestions.push('minecraft');
-	if (Format.id === 'skin') tag_suggestions.push('skin');
-	if (!Mesh.all.length) tag_suggestions.push('voxel');
-	let clean_project_name = Project.name.toLowerCase().replace(/[_.-]+/g, '-').replace(/[^a-z0-9-]+/, '')
-	if (Project.name) tag_suggestions.push(clean_project_name);
-	if (clean_project_name.includes('-')) tag_suggestions.safePush(...clean_project_name.split('-').filter(s => s.length > 2 && s != 'geo').reverse());
-
-	let categories = {
-		"": "-",
-		"animals-pets": "Animals & Pets",
-		"architecture": "Architecture",
-		"art-abstract": "Art & Abstract",
-		"cars-vehicles": "Cars & Vehicles",
-		"characters-creatures": "Characters & Creatures",
-		"cultural-heritage-history": "Cultural Heritage & History",
-		"electronics-gadgets": "Electronics & Gadgets",
-		"fashion-style": "Fashion & Style",
-		"food-drink": "Food & Drink",
-		"furniture-home": "Furniture & Home",
-		"music": "Music",
-		"nature-plants": "Nature & Plants",
-		"news-politics": "News & Politics",
-		"people": "People",
-		"places-travel": "Places & Travel",
-		"science-technology": "Science & Technology",
-		"sports-fitness": "Sports & Fitness",
-		"weapons-military": "Weapons & Military",
-	}
-
-	var dialog = new Dialog({
-		id: 'sketchfab_uploader',
-		title: 'dialog.sketchfab_uploader.title',
-		width: 640,
-		form: {
-			token: {label: 'dialog.sketchfab_uploader.token', value: settings.sketchfab_token.value, type: 'password'},
-			about_token: {type: 'info', text: tl('dialog.sketchfab_uploader.about_token', ['[sketchfab.com/settings/password](https://sketchfab.com/settings/password)'])},
-			name: {label: 'dialog.sketchfab_uploader.name', value: capitalizeFirstLetter(Project.name.replace(/\..+/, '').replace(/[_.-]/g, ' '))},
-			description: {label: 'dialog.sketchfab_uploader.description', type: 'textarea'},
-			category1: {label: 'dialog.sketchfab_uploader.category', type: 'select', options: categories, value: ''},
-			category2: {label: 'dialog.sketchfab_uploader.category2', type: 'select', options: categories, value: ''},
-			tags: {label: 'dialog.sketchfab_uploader.tags', placeholder: 'Tag1 Tag2'},
-			tag_suggestions: {label: 'dialog.sketchfab_uploader.suggested_tags', type: 'buttons', buttons: tag_suggestions, click(index) {
-				let {tags} = dialog.getFormResult();
-				let new_tag = tag_suggestions[index];
-				if (!tags.split(/\s/g).includes(new_tag)) {
-					tags += ' ' + new_tag;
-					dialog.setFormValues({tags});
-				}
-			}},
-			animations: {label: 'dialog.sketchfab_uploader.animations', value: true, type: 'checkbox', condition: (Format.animation_mode && Animator.animations.length)},
-			draft: {label: 'dialog.sketchfab_uploader.draft', type: 'checkbox', value: true},
-			divider: '_',
-			private: {label: 'dialog.sketchfab_uploader.private', type: 'checkbox'},
-			password: {label: 'dialog.sketchfab_uploader.password'},
-		},
-		onConfirm: function(formResult) {
-
-			if (formResult.token && !formResult.name) {
-				Blockbench.showQuickMessage('message.sketchfab.name_or_token', 1800)
-				return;
-			}
-			if (!formResult.tags.split(' ').includes('blockbench')) {
-				formResult.tags += ' blockbench';
-			}
-			var data = new FormData()
-			data.append('token', formResult.token)
-			data.append('name', formResult.name)
-			data.append('description', formResult.description)
-			data.append('tags', formResult.tags)
-			data.append('isPublished', !formResult.draft)
-			//data.append('background', JSON.stringify({color: '#00ff00'}))
-			data.append('private', formResult.private)
-			data.append('password', formResult.password)
-			data.append('source', 'blockbench')
-
-			if (formResult.category1 || formResult.category2) {
-				let selected_categories = [];
-				if (formResult.category1) selected_categories.push(formResult.category1);
-				if (formResult.category2) selected_categories.push(formResult.category2);
-				data.append('categories', selected_categories);
-			}
-
-			settings.sketchfab_token.value = formResult.token
-
-			Codecs.gltf.compile({animations: formResult.animations}).then(content => {
-
-				var blob = new Blob([content], {type: "text/plain;charset=utf-8"});
-				var file = new File([blob], 'model.gltf')
-
-				data.append('modelFile', file)
-
-				$.ajax({
-					url: 'https://api.sketchfab.com/v3/models',
-					data: data,
-					cache: false,
-					contentType: false,
-					processData: false,
-					type: 'POST',
-					success: function(response) {
-						Blockbench.showMessageBox({
-							title: tl('message.sketchfab.success'),
-							message:
-								`[${formResult.name} on Sketchfab](https://sketchfab.com/models/${response.uid})`, //\n\n&nbsp;\n\n`+
-							icon: 'icon-sketchfab',
-						})
-					},
-					error: function(response) {
-						Blockbench.showQuickMessage(tl('message.sketchfab.error') + `Error ${response.status}`, 1500)
-						console.error(response);
-					}
-				})
-			})
-
-			dialog.hide()
-		}
-	})
-	dialog.show()
 }
 //Json
-function compileJSON(object, options) {
-	if (typeof options !== 'object') options = {}
+function compileJSON(object, options = {}) {
+	let indentation = options.indentation;
+	if (typeof indentation !== 'string') {
+		switch (settings.json_indentation.value) {
+			case 'spaces_4': indentation = '    '; break;
+			case 'spaces_2': indentation = '  '; break;
+			case 'tabs': default: indentation = '\t'; break;
+		}
+	}
 	function newLine(tabs) {
 		if (options.small === true) {return '';}
-		var s = '\n'
-		for (var i = 0; i < tabs; i++) {
-			s += '\t'
+		let s = '\n';
+		for (let i = 0; i < tabs; i++) {
+			s += indentation;
 		}
 		return s;
 	}
 	function escape(string) {
 		return string.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n|\r\n/g, '\\n').replace(/\t/g, '\\t')
 	}
-	function handleVar(o, tabs) {
+	function handleVar(o, tabs, breaks = true) {
 		var out = ''
 		if (typeof o === 'string') {
 			//String
@@ -440,27 +519,34 @@ function compileJSON(object, options) {
 		} else if (o instanceof Array) {
 			//Array
 			let has_content = false
-			let has_objects = !!o.find(item => typeof item === 'object');
+			let multiline = !!o.find(item => typeof item === 'object');
+			if (!multiline) {
+				let length = 0;
+				o.forEach(item => {
+					length += typeof item === 'string' ? (item.length+4) : 3;
+				});
+				if (length > 140) multiline = true;
+			}
 			out += '['
 			for (var i = 0; i < o.length; i++) {
 				var compiled = handleVar(o[i], tabs+1)
 				if (compiled) {
-					if (has_content) {out += ',' + ((options.small || has_objects) ? '' : ' ')}
-					if (has_objects) {out += newLine(tabs)}
+					if (has_content) {out += ',' + ((options.small || multiline) ? '' : ' ')}
+					if (multiline) {out += newLine(tabs)}
 					out += compiled
 					has_content = true
 				}
 			}
-			if (has_objects) {out += newLine(tabs-1)}
+			if (multiline) {out += newLine(tabs-1)}
 			out += ']'
 		} else if (typeof o === 'object') {
 			//Object
-			var breaks = o.constructor.name !== 'oneLiner';
+			breaks = breaks && o.constructor.name !== 'oneLiner';
 			var has_content = false
 			out += '{'
 			for (var key in o) {
 				if (o.hasOwnProperty(key)) {
-					var compiled = handleVar(o[key], tabs+1)
+					var compiled = handleVar(o[key], tabs+1, breaks)
 					if (compiled) {
 						if (has_content) {out += ',' + (breaks || options.small?'':' ')}
 						if (breaks) {out += newLine(tabs)}
@@ -475,7 +561,11 @@ function compileJSON(object, options) {
 		}
 		return out;
 	}
-	return handleVar(object, 1)
+	let file = handleVar(object, 1);
+	if ((settings.final_newline.value && options.final_newline != false) || options.final_newline == true) {
+		file += '\n';
+	}
+	return file;
 }
 function autoParseJSON(data, feedback) {
 	if (data.substr(0, 4) === '<lz>') {
@@ -492,6 +582,15 @@ function autoParseJSON(data, feedback) {
 			data = JSON.parse(data)
 		} catch (err) {
 			if (feedback === false) return;
+			if (data.match(/\n\r?[><]{7}/)) {
+				Blockbench.showMessageBox({
+					title: 'message.invalid_file.title',
+					icon: 'fab.fa-git-alt',
+					message: 'message.invalid_file.merge_conflict'
+				})
+				return;
+			}
+			let error_part = '';
 			function logErrantPart(whole, start, length) {
 				var line = whole.substr(0, start).match(/\n/gm)
 				line = line ? line.length+1 : 1
@@ -500,23 +599,24 @@ function autoParseJSON(data, feedback) {
 				lines.forEach((s, i) => {
 					result += `#${line+i} ${s}\n`
 				})
-				console.log(result.substr(0, result.length-1) + ' <-- HERE')
+				error_part = result.substr(0, result.length-1) + ' <-- HERE';
+				console.log(error_part);
 			}
 			console.error(err)
 			var length = err.toString().split('at position ')[1]
 			if (length) {
 				length = parseInt(length)
-				var start = limitNumber(length-20, 0, Infinity)
+				var start = limitNumber(length-32, 0, Infinity)
 
 				logErrantPart(data, start, 1+length-start)
 			} else if (err.toString().includes('Unexpected end of JSON input')) {
 
-				logErrantPart(data, data.length-10, 10)
+				logErrantPart(data, data.length-16, 10)
 			}
 			Blockbench.showMessageBox({
 				translateKey: 'invalid_file',
 				icon: 'error',
-				message: tl('message.invalid_file.message', [err])
+				message: tl('message.invalid_file.message', [err]) + (error_part ? `\n\n\`\`\`\n${error_part}\n\`\`\`` : '')
 			})
 			return;
 		}
@@ -528,23 +628,26 @@ function autoParseJSON(data, feedback) {
 BARS.defineActions(function() {
 	//Import
 	new Action('open_model', {
-		icon: 'assessment',
+		icon: 'file_open',
 		category: 'file',
 		keybind: new Keybind({key: 'o', ctrl: true}),
 		click: function () {
 			var startpath;
 			if (isApp && recent_projects && recent_projects.length) {
-				startpath = recent_projects[0].path;
+				let first_recent_project = recent_projects.find(p => !p.favorite) || recent_projects[0];
+				startpath = first_recent_project.path;
 				if (typeof startpath == 'string') {
-					startpath = startpath.split(osfs);
-					startpath.pop();
-					startpath = startpath.join(osfs);
+					startpath = startpath.replace(/[\\\/][^\\\/]+$/, '');
 				}
 			}
 			Blockbench.import({
 				resource_id: 'model',
 				extensions: Codec.getAllExtensions(),
 				type: 'Model',
+				readtype: file => {
+					if (typeof file == 'string' && file.search(/\.png$/i) > 0) {
+						return 'image'
+					}},
 				startpath,
 				multiple: true
 			}, function(files) {
@@ -559,8 +662,8 @@ BARS.defineActions(function() {
 		category: 'file',
 		click() {
 			Blockbench.textPrompt('action.open_from_link', '', link => {
-				if (link.match(/https:\/\/blckbn.ch\//) || link.length == 4) {
-					let code = link.replace(/[/]+/g, '').substr(-4);
+				if (link.match(/https:\/\/blckbn.ch\//) || link.length == 4 || link.length == 6) {
+					let code = link.replace(/\/$/, '').split('/').last();
 					$.getJSON(`https://blckbn.ch/api/models/${code}`, (model) => {
 						Codecs.project.load(model, {path: ''});
 					}).fail(error => {
@@ -573,48 +676,82 @@ BARS.defineActions(function() {
 						Blockbench.showQuickMessage('message.invalid_link')
 					})
 				}
-			}, 'https://blckbn.ch/1234')
+			}, 'https://blckbn.ch/123abc')
 		}
 	})
 	new Action('extrude_texture', {
 		icon: 'eject',
 		category: 'file',
-		condition: _ => Format && !Project.box_uv,
-		click: function () {
+		condition: _ => (Project && (!Project.box_uv || Format.optional_box_uv)),
+		click() {
 			Blockbench.import({
 				resource_id: 'texture',
 				extensions: ['png'],
 				type: 'PNG Texture',
 				readtype: 'image'
-			}, function(files) {
+			}, (files) => {
 				if (files.length) {
-					showDialog('image_extruder')
-					Extruder.drawImage(files[0])
+					Extruder.dialog.show();
+					Extruder.drawImage(files[0]);
 				}
 			})
 		}
 	})
-	//Export
+	// Smart Save
 	new Action('export_over', {
 		icon: 'save',
 		category: 'file',
 		keybind: new Keybind({key: 's', ctrl: true}),
-		click: function () {
+		condition: () => Project,
+		click: async function(event) {
 			if (isApp) {
 				saveTextures()
 				if (Format) {
+					let export_codec = Format.codec;
 					if (Project.save_path) {
 						Codecs.project.write(Codecs.project.compile(), Project.save_path);
 					}
-					if (Project.export_path && Format.codec && Format.codec.compile) {
-						Format.codec.write(Format.codec.compile(), Project.export_path)
-					} else if (Format.codec && Format.codec.export && !Project.save_path) {
-						Format.codec.export()
+					if (Project.export_path && export_codec?.compile) {
+						export_codec.write(export_codec.compile(), Project.export_path)
+
+					} else if (export_codec?.export && !Project.save_path) {
+						if (export_codec.id === 'project' || settings.dialog_save_codec.value == false) {
+							export_codec.export();
+
+						} else {
+							await new Promise(resolve => Blockbench.showMessageBox({
+								translateKey: 'save_codec_selector',
+								icon: 'save',
+								commands: {
+									project: 'message.save_codec_selector.project_file',
+									[export_codec.id]: export_codec.name || 'Default Format',
+									both: 'message.save_codec_selector.both',
+								},
+								checkboxes: {
+									dont_show_again: {value: false, text: 'dialog.dontshowagain'}
+								},
+								buttons: ['dialog.cancel']
+							}, (codec, checkboxes = {}) => {
+								if (codec == 'both') {
+									Codecs.project.export();
+									export_codec.export();
+	
+								} else if (codec) {
+									Codecs[codec].export();
+								}
+								if (checkboxes.dont_show_again) {
+									settings.dialog_save_codec.set(false);
+								}
+								resolve();
+							}));
+						}
 					} else if (!Project.save_path) {
-						Project.saved = true;
+						if (Format.edit_mode) {
+							Codecs.project.export();
+						}
 					}
 				}
-				if (Format.animation_mode && Format.animation_files && Animation.all.length) {
+				if (Format.animation_mode && Format.animation_files && AnimationItem.all.length) {
 					BarItems.save_all_animations.trigger();
 				}
 			} else {
@@ -622,7 +759,36 @@ BARS.defineActions(function() {
 				if (Format.codec && Format.codec.export) {
 					Format.codec.export()
 				}
+				/*
+				if (Format.codec && Format.codec.export) {
+
+					let codec = await new Promise(resolve => Blockbench.showMessageBox({
+						translateKey: 'save_codec_selector',
+						icon: 'save',
+						commands: {
+							project: 'message.save_codec_selector.project_file',
+							[export_codec.id]: export_codec.name || 'Default Format',
+							both: 'message.save_codec_selector.both',
+						},
+						buttons: ['dialog.cancel']
+					}, resolve));
+					
+					if (codec == 'both') {
+						Codecs.project.export();
+						export_codec.export();
+
+					} else if (codec) {
+						Codecs[codec].export();
+					}
+
+				} else if (Format.edit_mode) {
+					Codecs.project.export();
+
+				} else {
+					Project.saved = false;
+				}*/
 			}
+			Blockbench.dispatchEvent('quick_save_model', {});
 		}
 	})
 	if (!isApp) {
@@ -654,84 +820,5 @@ BARS.defineActions(function() {
 			}
 		})
 	}
-	new Action('upload_sketchfab', {
-		icon: 'icon-sketchfab',
-		category: 'file',
-		click: function(ev) {
-			uploadSketchfabModel()
-		}
-	})
-
-
-	new Action('share_model', {
-		icon: 'share',
-		condition: () => Outliner.elements.length,
-		click() {
-			var dialog = new Dialog({
-				id: 'share_model',
-				title: 'dialog.share_model.title',
-				form: {
-					expire_time: {label: 'dialog.share_model.expire_time', type: 'select', default: '2d', options: {
-						'10m': tl('dates.minutes', [10]),
-						'1h': tl('dates.hour', [1]),
-						'1d': tl('dates.day', [1]),
-						'2d': tl('dates.days', [2]),
-						'1w': tl('dates.week', [1]),
-						'2w': tl('dates.weeks', [2]),
-					}},
-					info: {type: 'info', text: 'The model will be stored on the Blockbench servers for the duration specified above. [Learn more](https://blockbench.net/blockbench-model-sharing-service/)'}
-				},
-				buttons: ['generic.share', 'dialog.cancel'],
-				onConfirm: function(formResult) {
-		
-					let expire_time = formResult.expire_time;
-					let model = Codecs.project.compile({compressed: false});
-
-					$.ajax({
-						url: 'https://blckbn.ch/api/model',
-						data: JSON.stringify({ expire_time, model }),
-						cache: false,
-						contentType: 'application/json; charset=utf-8',
-						dataType: 'json',
-						type: 'POST',
-						success: function(response) {
-							let link = `https://blckbn.ch/${response.id}`
-
-							let link_dialog = new Dialog({
-								id: 'share_model_link',
-								title: 'dialog.share_model.title',
-								form: {
-									link: {type: 'text', value: link}
-								},
-								buttons: ['action.copy', 'dialog.close'],
-								onConfirm() {
-									link_dialog.hide();
-									if (isApp || navigator.clipboard) {
-										Clipbench.setText(link);
-										Blockbench.showQuickMessage('dialog.share_model.copied_to_clipboard');
-									} else {
-										Blockbench.showMessageBox({
-											title: 'dialog.share_model.title',
-											message: `[${link}](${link})`,
-										})
-									}
-								}
-							}).show();
-
-						},
-						error: function(response) {
-							Blockbench.showQuickMessage('dialog.share_model.failed', 1500)
-							console.error(response);
-						}
-					})
-		
-					dialog.hide()
-				}
-			})
-			dialog.show()
-		}
-	})
-
-
 
 })

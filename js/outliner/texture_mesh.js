@@ -14,7 +14,7 @@ class TextureMesh extends OutlinerElement {
 	}
 	getWorldCenter() {
 		let m = this.mesh;
-		let pos = Reusable.vec1.fromArray(this.local_pivot);
+		let pos = new THREE.Vector3().fromArray(this.local_pivot);
 
 		if (m) {
 			let r = m.getWorldQuaternion(Reusable.quat1);
@@ -54,6 +54,7 @@ class TextureMesh extends OutlinerElement {
 	getUndoCopy() {
 		var copy = new TextureMesh(this)
 		copy.uuid = this.uuid;
+		copy.type = this.type;
 		delete copy.parent;
 		return copy;
 	}
@@ -69,20 +70,15 @@ class TextureMesh extends OutlinerElement {
 }
 	TextureMesh.prototype.title = tl('data.texture_mesh');
 	TextureMesh.prototype.type = 'texture_mesh';
-	TextureMesh.prototype.icon = 'fa fa-puzzle-piece';
+	TextureMesh.prototype.icon = 'fa-puzzle-piece';
 	TextureMesh.prototype.movable = true;
 	TextureMesh.prototype.scalable = true;
 	TextureMesh.prototype.rotatable = true;
 	TextureMesh.prototype.needsUniqueName = false;
 	TextureMesh.prototype.menu = new Menu([
-		'group_elements',
-		'_',
-		'copy',
-		'paste',
-		'duplicate',
-		'_',
-		'rename',
-		{name: 'menu.texture_mesh.texture_name', icon: 'collections', condition: () => !Project.single_texture, click(context) {
+		...Outliner.control_menu_group,
+		new MenuSeparator('settings'),
+		{name: 'menu.texture_mesh.texture_name', icon: 'collections', condition: () => !Format.single_texture, click(context) {
 			Blockbench.textPrompt('menu.texture_mesh.texture_name', context.texture_name, value => {
 				Undo.initEdit({elements: TextureMesh.all}),
 				TextureMesh.all.forEach(element => {
@@ -91,6 +87,8 @@ class TextureMesh extends OutlinerElement {
 				Undo.finishEdit('Change texture mesh texture name')
 			})
 		}},
+		new MenuSeparator('manage'),
+		'rename',
 		'toggle_visibility',
 		'delete'
 	]);
@@ -119,6 +117,7 @@ new NodePreviewController(TextureMesh, {
 		mesh.name = element.uuid;
 		mesh.type = element.type;
 		mesh.isElement = true;
+		mesh.rotation.order = 'ZYX';
 
 		mesh.geometry.setAttribute('highlight', new THREE.BufferAttribute(new Uint8Array(4), 1));
 
@@ -137,8 +136,10 @@ new NodePreviewController(TextureMesh, {
 		this.updateGeometry(element);
 		this.updateFaces(element);
 		mesh.visible = element.visibility;
+
+		this.dispatchEvent('setup', {element});
 	},
-	updateGeometry(element) {
+	updateGeometry(element, texture = Texture.getDefault()) {
 		
 		let {mesh} = element;
 		let position_array = [];
@@ -146,6 +147,7 @@ new NodePreviewController(TextureMesh, {
 		let outline_positions = [];
 		let uvs = [1, 1, 1, 0, 0, 0, 0, 1,   1, 1, 1, 0, 0, 0, 0, 1];
 		let normals = [];
+		let colors = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
 		function addNormal(x, y, z) {
 			normals.push(x, y, z);
 			normals.push(x, y, z);
@@ -189,7 +191,6 @@ new NodePreviewController(TextureMesh, {
 			...corners[3], ...corners[4+3]
 		)
 
-		let texture = Texture.getDefault();
 		if (texture && texture.width) {
 			let canvas = document.createElement('canvas');
 			let ctx = canvas.getContext('2d');
@@ -231,6 +232,7 @@ new NodePreviewController(TextureMesh, {
 					sx / canvas.width, 1 - (ey / canvas.height),
 					sx / canvas.width, 1 - (sy / canvas.height),
 				)
+				colors.push(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1);
 
 			}
 
@@ -276,20 +278,27 @@ new NodePreviewController(TextureMesh, {
 		mesh.geometry.setAttribute('highlight', new THREE.BufferAttribute(new Uint8Array(mesh.geometry.attributes.position.count), 1));
 		mesh.geometry.setIndex(indices);
 		mesh.geometry.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
+		mesh.geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(colors), 3));
 		mesh.geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(normals), 3));
+		mesh.geometry.attributes.color.needsUpdate = true;
 		mesh.geometry.attributes.normal.needsUpdate = true;
 
 		mesh.outline.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(outline_positions), 3));
 
 		mesh.geometry.computeBoundingBox();
 		mesh.geometry.computeBoundingSphere();
+
+		this.dispatchEvent('update_geometry', {element, texture});
 	},
 	updateFaces(element) {
 		let {mesh} = element;
 
 		if (Project.view_mode === 'solid') {
-			mesh.material = Canvas.solidMaterial
+			mesh.material = Canvas.monochromaticSolidMaterial
 		
+		} else if (Project.view_mode === 'colored_solid') {
+			mesh.material = Canvas.coloredSolidMaterials[0]
+
 		} else if (Project.view_mode === 'wireframe') {
 			mesh.material = Canvas.wireframeMaterial
 
@@ -303,11 +312,15 @@ new NodePreviewController(TextureMesh, {
 		}
 
 		TextureMesh.preview_controller.updateGeometry(element);
+
+		this.dispatchEvent('update_faces', {element});
 	},
 	updateTransform(element) {
 		let {mesh} = element;
-		NodePreviewController.prototype.updateTransform(element);
+		NodePreviewController.prototype.updateTransform.call(this, element);
 		mesh.scale.set(1, 1, 1);
+
+		this.dispatchEvent('update_transform', {element});
 	}
 })
 

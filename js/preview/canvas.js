@@ -36,6 +36,78 @@ const Reusable = {
 	euler2: new THREE.Euler(),
 }
 
+// Aza note:
+// ---------------------------------------
+// Not sure about the pertinence of doing this, but my reasoning is that it saves us 
+// from copying the exact same shaders twice for both solid view mode variants (monochromatic & colored).
+const SolidMaterialShaders = {
+	vertShader: `
+		attribute float highlight;
+
+		uniform bool SHADE;
+
+		varying float light;
+		varying float lift;
+
+		float AMBIENT = 0.1;
+		float XFAC = -0.05;
+		float ZFAC = 0.05;
+
+		void main()
+		{
+
+			if (SHADE) {
+
+				vec3 N = normalize( vec3( modelViewMatrix * vec4(normal, 0.0) ) );
+
+				light = (0.2 + abs(N.z) * 0.8) * (1.0-AMBIENT) + N.x*N.x * XFAC + N.y*N.y * ZFAC + AMBIENT;
+
+			} else {
+
+				light = 1.0;
+
+			}
+
+			if (highlight == 2.0) {
+				lift = 0.3;
+			} else if (highlight == 1.0) {
+				lift = 0.12;
+			} else {
+				lift = 0.0;
+			}
+			
+			vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
+			gl_Position = projectionMatrix * mvPosition;
+		}`,
+	fragShader: `
+		#ifdef GL_ES
+		precision ${isApp ? 'highp' : 'mediump'} float;
+		#endif
+
+		uniform bool SHADE;
+		uniform float BRIGHTNESS;
+		uniform vec3 base;
+
+		varying float light;
+		varying float lift;
+
+		void main(void)
+		{
+
+			gl_FragColor = vec4(lift + base * light * BRIGHTNESS, 1.0);
+
+			if (lift > 0.1) {
+				gl_FragColor.b = gl_FragColor.b * 1.16;
+				gl_FragColor.g = gl_FragColor.g * 1.04;
+			}
+			if (lift > 0.2) {
+				gl_FragColor.r = gl_FragColor.r * 0.6;
+				gl_FragColor.g = gl_FragColor.g * 0.7;
+			}
+
+		}`
+}
+
 const Canvas = {
 	// Stores various colors for the 3D scene
 	gizmo_colors,
@@ -43,6 +115,7 @@ const Canvas = {
 	scene,
 	// Pivot marker
 	pivot_marker: rot_origin,
+	gizmos: [rot_origin],
 	outlineMaterial: new THREE.LineBasicMaterial({
 		linewidth: 2,
 		transparent: true,
@@ -57,81 +130,15 @@ const Canvas = {
 	wireframeMaterial: new THREE.MeshBasicMaterial({
 		wireframe: true
 	}),
-	solidMaterial: (function() {
-		var vertShader = `
-			attribute float highlight;
-
-			uniform bool SHADE;
-
-			varying float light;
-			varying float lift;
-
-			float AMBIENT = 0.1;
-			float XFAC = -0.05;
-			float ZFAC = 0.05;
-
-			void main()
-			{
-
-				if (SHADE) {
-
-					vec3 N = normalize( vec3( modelViewMatrix * vec4(normal, 0.0) ) );
-
-					light = (0.2 + abs(N.z) * 0.8) * (1.0-AMBIENT) + N.x*N.x * XFAC + N.y*N.y * ZFAC + AMBIENT;
-
-				} else {
-
-					light = 1.0;
-
-				}
-
-				if (highlight == 2.0) {
-					lift = 0.3;
-				} else if (highlight == 1.0) {
-					lift = 0.12;
-				} else {
-					lift = 0.0;
-				}
-				
-				vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
-				gl_Position = projectionMatrix * mvPosition;
-			}`
-		var fragShader = `
-			#ifdef GL_ES
-			precision ${isApp ? 'highp' : 'mediump'} float;
-			#endif
-
-			uniform bool SHADE;
-			uniform float BRIGHTNESS;
-			uniform vec3 base;
-
-			varying float light;
-			varying float lift;
-
-			void main(void)
-			{
-
-				gl_FragColor = vec4(lift + base * light * BRIGHTNESS, 1.0);
-
-				if (lift > 0.1) {
-					gl_FragColor.b = gl_FragColor.b * 1.16;
-					gl_FragColor.g = gl_FragColor.g * 1.04;
-				}
-				if (lift > 0.2) {
-					gl_FragColor.r = gl_FragColor.r * 0.6;
-					gl_FragColor.g = gl_FragColor.g * 0.7;
-				}
-
-			}`
-
+	monochromaticSolidMaterial: (function() {
 		return new THREE.ShaderMaterial({
 			uniforms: {
 				SHADE: {type: 'bool', value: settings.shading.value},
 				BRIGHTNESS: {type: 'bool', value: settings.brightness.value / 50},
 				base: {value: gizmo_colors.solid}
 			},
-			vertexShader: vertShader,
-			fragmentShader: fragShader,
+			vertexShader: SolidMaterialShaders.vertShader,
+			fragmentShader: SolidMaterialShaders.fragShader,
 			side: THREE.DoubleSide
 		});
 	})(),
@@ -312,7 +319,9 @@ const Canvas = {
 			side: THREE.DoubleSide,
 		})
 	})(),
-	emptyMaterials: (function() {
+	emptyMaterials: [],
+	coloredSolidMaterials:[],
+	updateMarkerColorMaterials() {
 		var img = new Image()
 		img.src = 'assets/missing.png'
 		var tex = new THREE.Texture(img)
@@ -392,29 +401,66 @@ const Canvas = {
 
 			}`
 
-		return markerColors.map(function(color, i) {
-			return new THREE.ShaderMaterial({
+		
+		markerColors.forEach(function(color, i) {
+			if (Canvas.emptyMaterials[i]) return;
+
+			// Define uniforms that all marker colored shaders share
+			let commonUniforms = {
+				SHADE: {type: 'bool', value: settings.shading.value},
+				BRIGHTNESS: {type: 'bool', value: settings.brightness.value / 50},
+				base: {value: new THREE.Color().set(color.pastel)}
+			}
+
+			// Empty texture materials
+			Canvas.emptyMaterials[i] = new THREE.ShaderMaterial({
 				uniforms: {
 					map: {type: 't', value: tex},
-					SHADE: {type: 'bool', value: settings.shading.value},
-					BRIGHTNESS: {type: 'bool', value: settings.brightness.value / 50},
-					base: {value: new THREE.Color().set(color.pastel)}
+					...commonUniforms
 				},
 				vertexShader: vertShader,
 				fragmentShader: fragShader,
 				side: THREE.DoubleSide,
 			})
+
+			// Colored solid materials
+			Canvas.coloredSolidMaterials[i] = new THREE.ShaderMaterial({
+				uniforms: commonUniforms,
+				vertexShader: SolidMaterialShaders.vertShader,
+				fragmentShader: SolidMaterialShaders.fragShader,
+				side: THREE.DoubleSide
+			});
 		})
-	})(),
+	},
 	transparentMaterial: new THREE.MeshBasicMaterial({visible: false, name: 'invisible'}),
+	global_light_color: new THREE.Color(0xffffff),
+	global_light_side: 0,
+
+	hover_helper_line: (function() {
+		let material = new THREE.LineBasicMaterial({color: 0xA4A5CA, linewidth: 2});
+		let geometry = new THREE.BufferGeometry();
+		geometry.setAttribute('position', new THREE.Float32BufferAttribute( [0, 0, 0, 0, 0, 0], 3 ));
+		let line = new THREE.LineSegments(geometry, material);
+		return line;
+	})(),
+	hover_helper_vertex: (function() {
+		let material = new THREE.PointsMaterial({size: 4, sizeAttenuation: false, color: 0x3e90ff})
+		let geometry = new THREE.BufferGeometry();
+		geometry.setAttribute('position', new THREE.Float32BufferAttribute( [0, 0, 0], 3 ));
+		return new THREE.Points(geometry, material);
+	})(),
+
+	onionSkinEarlierMaterial: new THREE.LineBasicMaterial({color: 0xa3363d}),
+	onionSkinLaterMaterial: new THREE.LineBasicMaterial({color: 0x3995bf}),
 	gridMaterial: new THREE.LineBasicMaterial({color: gizmo_colors.grid}),
 	buildGrid() {
-		three_grid.children.length = 0;
+		three_grid.children.empty();
 		if (Canvas.side_grids) {
-			Canvas.side_grids.x.children.length = 0;
-			Canvas.side_grids.z.children.length = 0;
+			Canvas.side_grids.x.children.empty();
+			Canvas.side_grids.z.children.empty();
 		}
-		if (Modes.display && settings.display_grid.value === false) return;
+		if (!settings.grids.value) return;
+		if (Modes.display) return;
 
 		three_grid.name = 'grid_group'
 		gizmo_colors.grid.set(parseInt('0x'+CustomTheme.data.colors.grid.replace('#', ''), 16));
@@ -517,7 +563,8 @@ const Canvas = {
 			}
 		}
 		if (settings.large_box.value === true) {
-			var geometry_box = new THREE.EdgesGeometry(new THREE.BoxBufferGeometry(48, 48, 48));
+			let size = Format.cube_size_limiter?.box_marker_size || [48, 48, 48];
+			var geometry_box = new THREE.EdgesGeometry(new THREE.BoxBufferGeometry(...size));
 
 			var line_material = new THREE.LineBasicMaterial({color: gizmo_colors.grid});
 			var large_box = new THREE.LineSegments( geometry_box, line_material);
@@ -528,6 +575,8 @@ const Canvas = {
 			}
 			large_box.name = 'grid'
 			three_grid.add(large_box)
+			three_grid.size_limit_box = large_box;
+			if (Format.cube_size_limiter?.updateBoxMarker) Format.cube_size_limiter.updateBoxMarker();
 		}
 		scene.add(three_grid)
 
@@ -556,11 +605,13 @@ const Canvas = {
 			el.layers.set(3)
 		});
 	},
+	updateShading,
 
 	face_order: ['east', 'west', 'up', 'down', 'south', 'north'],
 	temp_vectors: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()],
 
 	setup() {
+		Canvas.updateMarkerColorMaterials();
 
 		//Light
 		Sun = new THREE.AmbientLight( 0xffffff );
@@ -576,7 +627,7 @@ const Canvas = {
 		lights.top.position.set(0, 100, 0)
 		lights.add(lights.top);
 		
-		lights.top.intensity = 0.41
+		lights.top.intensity = 0.46
 		
 		lights.bottom = new THREE.DirectionalLight();
 		lights.bottom.name = 'light_bottom'
@@ -609,7 +660,7 @@ const Canvas = {
 
 		lights.west.intensity = lights.east.intensity = 0.1
 
-		updateShading()
+		Canvas.updateShading()
 
 		var img = new Image();
 		img.src = 'assets/north.png';
@@ -626,6 +677,26 @@ const Canvas = {
 			side: THREE.DoubleSide,
 			alphaTest: 0.2
 		})
+
+		let brush_img = new Image();
+		brush_img.src = 'assets/brush_outline.png';
+		brush_img.tex = new THREE.Texture(brush_img);
+		brush_img.tex.magFilter = THREE.NearestFilter;
+		brush_img.tex.minFilter = THREE.NearestFilter;
+		brush_img.onload = function() {
+			this.tex.needsUpdate = true;
+		}
+		let brush_outline_material = new THREE.MeshBasicMaterial({
+			map: brush_img.tex,
+			transparent: true,
+			side: THREE.DoubleSide,
+			alphaTest: 0.2
+		})
+		Canvas.brush_outline = new THREE.Mesh(new THREE.PlaneBufferGeometry(1, 1), brush_outline_material);
+		Canvas.gizmos.push(Canvas.brush_outline);
+
+		Canvas.gizmos.push(Canvas.hover_helper_line);
+		Canvas.gizmos.push(Canvas.hover_helper_vertex);
 
 		/*
 		// Vertex gizmos
@@ -653,24 +724,26 @@ const Canvas = {
 		Canvas.pivot_marker.add(helper1)
 		Canvas.pivot_marker.add(helper2)
 
-		Canvas.pivot_marker.rotation.reorder('ZYX')
+		Canvas.pivot_marker.name = 'pivot_marker';
+		Canvas.pivot_marker.rotation.order = 'ZYX';
 		Canvas.pivot_marker.base_scale = new THREE.Vector3(1, 1, 1);
 		Canvas.pivot_marker.no_export = true;
 
 		Canvas.groundPlaneMaterial = new THREE.MeshBasicMaterial({
 			map: Canvas.emptyMaterials[0].uniforms.map.value,
 			color: CustomTheme.data.colors.back,
-			side: THREE.DoubleSide,
+			side: settings.ground_plane_double_side.value ? THREE.DoubleSide : THREE.FrontSide,
 			alphaTest: 0.2
 		})
 		let size = 4096;
 		Canvas.ground_plane = new THREE.Mesh(new THREE.PlaneGeometry(size, size), Canvas.groundPlaneMaterial);
-		Canvas.ground_plane.rotation.x = Math.PI/2;
+		Canvas.ground_plane.rotation.x = -Math.PI/2;
 		Canvas.ground_plane.position.y = -0.025;
 		Canvas.ground_plane.geometry.attributes.uv.set([0, 4096/16, 4096/16, 4096/16, 0, 0, 4096/16, 0]);
 		Canvas.ground_plane.geometry.attributes.uv.needsUpdate = true;
 		Canvas.ground_plane.visible = settings.ground_plane.value;
 		scene.add(Canvas.ground_plane);
+		Canvas.gizmos.push(Canvas.ground_plane);
 
 		setupGrid = true;
 	},
@@ -690,19 +763,18 @@ const Canvas = {
 	withoutGizmos(cb) {
 
 		function editVis(edit) {
+			Canvas.gizmos.forEach(object => {
+				edit(object);
+			})
 			edit(three_grid)
-			edit(Canvas.ground_plane)
-			edit(Canvas.side_grids.x)
-			edit(Canvas.side_grids.z)
-			edit(Transformer)
-			edit(Canvas.outlines)
-			edit(Canvas.pivot_marker)
-			edit(Vertexsnap.line)
-			edit(Animator.motion_trail)
+			if (Canvas.side_grids) edit(Canvas.side_grids.x)
+			if (Canvas.side_grids) edit(Canvas.side_grids.z)
 			Outliner.elements.forEach(element => {
 				let {mesh} = element;
 				if (element.selected && mesh.outline) edit(mesh.outline);
 				if (mesh.grid_box) edit(mesh.grid_box);
+				if (element instanceof Locator) edit(mesh.children[0]);
+				if (element instanceof NullObject) edit(mesh);
 			})
 		}
 		editVis(obj => {
@@ -710,7 +782,7 @@ const Canvas = {
 			obj.visible = false
 		})
 		var ground_anim_before = ground_animation
-		if (display_mode && ground_animation) {
+		if (Modes.display && ground_animation) {
 			ground_animation = false
 		}
 		updateCubeHighlights(null, true);
@@ -725,7 +797,7 @@ const Canvas = {
 			obj.visible = obj.was_visible
 			delete obj.was_visible
 		})
-		if (display_mode && ground_anim_before) {
+		if (Modes.display && ground_anim_before) {
 			ground_animation = ground_anim_before
 		}
 		updateCubeHighlights();
@@ -748,8 +820,6 @@ const Canvas = {
 	 * @param {boolean} options.selection Update the selection
 	 */
 	updateView(options) {
-
-
 		if (options.elements) {
 			let aspects = options.element_aspects || {};
 			options.elements.forEach(element => {
@@ -768,8 +838,8 @@ const Canvas = {
 				if ((aspects.uv || update_all)) {
 					if (controller.updateUV) controller.updateUV(element);
 				}
-				if ((aspects.painting_grid || update_all) && Modes.paint && settings.painting_grid.value) {
-					if (controller.updatePaintingGrid) controller.updatePaintingGrid(element);
+				if ((aspects.painting_grid || aspects.geometry || aspects.transform || update_all) && Modes.paint && settings.painting_grid.value) {
+					if (controller.updatePixelGrid) controller.updatePixelGrid(element);
 				}
 				if (aspects.visibility || update_all) {
 					if (controller.updateVisibility) controller.updateVisibility(element);
@@ -782,6 +852,7 @@ const Canvas = {
 		if (options.selection) {
 			updateSelection();
 		}
+		Blockbench.dispatchEvent('update_view', options);
 	},
 	//Main updaters
 	clear() {
@@ -837,6 +908,7 @@ const Canvas = {
 					for (var face in obj.faces) {
 						if (obj.faces[face].getTexture() == texture) {
 				 			used = true;
+							break;
 						}
 					}
 				}
@@ -854,15 +926,19 @@ const Canvas = {
 		Canvas.updateView({elements: Outliner.elements, element_aspects: {uv: true}});
 		return;
 	},
-	getRenderSide() {
+	getRenderSide(texture) {
+		if (texture instanceof Texture) {
+			if (texture.render_sides == 'front') return THREE.FrontSide;
+			if (texture.render_sides == 'double') return THREE.DoubleSide;
+		}
 		if (settings.render_sides.value == 'auto') {
-			var side = Format.id === 'java_block' ? THREE.FrontSide : THREE.DoubleSide;
-			if (display_mode) {
-				if (['thirdperson_righthand', 'thirdperson_lefthand', 'head'].includes(display_slot)) {
-					side = THREE.DoubleSide;
-				}
+			if (Format && Format.render_sides) {
+				let value = typeof Format.render_sides == 'function' ? Format.render_sides() : Format.render_sides;
+				if (value == 'front') return THREE.FrontSide;
+				if (value == 'double') return THREE.DoubleSide;
+				if (value == 'back') return THREE.BackSide;
 			}
-			return side;
+			return THREE.DoubleSide;
 		} else if (settings.render_sides.value == 'front') {
 			return THREE.FrontSide;
 		} else {
@@ -870,21 +946,23 @@ const Canvas = {
 		}
 	},
 	updateRenderSides() {
-		var side = Canvas.getRenderSide();
+		let side = Canvas.getRenderSide();
 		ModelProject.all.forEach(project => {
-			project.textures.forEach(function(t) {
-				var mat = project.materials[t.uuid]
-				if (mat) {
-					mat.side = side
-				}
+			project.textures.forEach((tex) => {
+				var mat = project.materials[tex.uuid];
+				if (!mat) return;
+				mat.side = Canvas.getRenderSide(tex);
 			})
 		})
 		if (Canvas.layered_material) {
 			Canvas.layered_material.side = side;
 		}
-		if (Canvas.solidMaterial) {
-			Canvas.solidMaterial.side = side;
+		if (Canvas.monochromaticSolidMaterial) {
+			Canvas.monochromaticSolidMaterial.side = side;
 		}
+		Canvas.coloredSolidMaterials.forEach(function(mat) {
+			mat.side = side
+		})
 		Canvas.emptyMaterials.forEach(function(mat) {
 			mat.side = side
 		})
@@ -926,7 +1004,7 @@ const Canvas = {
 		arr.forEach(function(obj) {
 			if (!obj.visibility) return;
 			var mesh = obj.mesh;
-			if (!mesh || !mesh.geometry) return;
+			if (!mesh || !mesh.geometry || !mesh.outline) return;
 
 			var copy = mesh.outline.clone();
 			copy.geometry = mesh.outline.geometry.clone();
@@ -941,12 +1019,12 @@ const Canvas = {
 		})
 	},
 	updateAllBones(bones = Group.all) {
-
+		if (Project) Project.model_3d.scale.set(1, 1, 1);
 		bones.forEach((obj) => {
 			let bone = obj.mesh
-			if (bone) {
+			if (bone && obj instanceof Group) {
 
-				bone.rotation.reorder('ZYX');
+				bone.rotation.order = 'ZYX';
 				bone.rotation.setFromDegreeArray(obj.rotation);
 				bone.position.fromArray(obj.origin);
 				bone.scale.x = bone.scale.y = bone.scale.z = 1;
@@ -984,8 +1062,8 @@ const Canvas = {
 				if (Group.selected.visibility) {
 					Group.selected.mesh.add(Canvas.pivot_marker)
 				}
-			} else if ((Cube.selected.length && Format.rotate_cubes) || Mesh.selected.length) {
-				let selected_elements = [...Cube.selected, ...Mesh.selected];
+			} else if ((Cube.selected.length && Format.rotate_cubes) || Mesh.selected.length || Locator.selected.length) {
+				let selected_elements = [...Cube.selected, ...Mesh.selected, ...Locator.selected];
 				if (selected_elements.length === 1) {
 					let mesh = selected_elements[0].mesh
 					if (mesh) {
@@ -1166,8 +1244,11 @@ const Canvas = {
 		Canvas.adaptObjectFaceGeo(cube);
 
 		if (Project.view_mode === 'solid') {
-			mesh.material = Canvas.solidMaterial
-		
+			mesh.material = Canvas.monochromaticSolidMaterial
+
+		} else if (Project.view_mode === 'colored_solid') {
+			mesh.material = Canvas.coloredSolidMaterials[cube.color]
+
 		} else if (Project.view_mode === 'wireframe') {
 			mesh.material = Canvas.wireframeMaterial
 
@@ -1199,144 +1280,13 @@ const Canvas = {
 		}
 	},
 	updateUV(cube, animation = true) {
-		var mesh = cube.mesh
-		if (mesh === undefined || !mesh.geometry) return;
-
-		if (Project.box_uv) {
-
-			var size = cube.size(undefined, true)
-			
-			var face_list = [   
-				{face: 'east',	from: [0, size[2]],				   		size: [size[2],  size[1]]},
-				{face: 'west',	from: [size[2] + size[0], size[2]],   	size: [size[2],  size[1]]},
-				{face: 'up', 	from: [size[2]+size[0], size[2]],	 	size: [-size[0], -size[2]]},
-				{face: 'down',	from: [size[2]+size[0]*2, 0],		 	size: [-size[0], size[2]]},
-				{face: 'south',	from: [size[2]*2 + size[0], size[2]], 	size: [size[0],  size[1]]},
-				{face: 'north',	from: [size[2], size[2]],			 	size: [size[0],  size[1]]},
-			]
-
-			if (cube.mirror_uv) {
-				face_list.forEach(function(f) {
-					f.from[0] += f.size[0]
-					f.size[0] *= -1
-				})
-				//East+West
-				
-				var p = {}
-
-				p.from = face_list[0].from.slice()
-				p.size = face_list[0].size.slice()
-
-				face_list[0].from = face_list[1].from.slice()
-				face_list[0].size = face_list[1].size.slice()
-
-				face_list[1].from = p.from.slice()
-				face_list[1].size = p.size.slice()
-
-			}
-			face_list.forEach(function(f, fIndex) {
-
-				if (cube.faces[f.face].texture === null) return;
-
-				var uv= [
-					f.from[0]			 +  cube.uv_offset[0],
-					f.from[1]			 +  cube.uv_offset[1],
-					f.from[0] + f.size[0] + cube.uv_offset[0],
-					f.from[1] + f.size[1] + cube.uv_offset[1]
-				]
-				uv.forEach(function(s, si) {
-					uv[si] *= 1
-				})
-
-				cube.faces[f.face].uv[0] = uv[0]
-				cube.faces[f.face].uv[1] = uv[1]
-				cube.faces[f.face].uv[2] = uv[2]
-				cube.faces[f.face].uv[3] = uv[3]
-
-				//Fight Bleeding
-				for (var si = 0; si < 2; si++) {
-					let margin = 1/64;
-					if (uv[si] > uv[si+2]) {
-						margin = -margin
-					}
-					uv[si] += margin
-					uv[si+2] -= margin
-				}
-
-				stretch = 1;
-				frame = 0;
-				let tex = cube.faces[f.face].getTexture();
-				if (tex instanceof Texture && tex.frameCount !== 1) {
-					stretch = tex.frameCount
-					if (animation === true && tex.currentFrame) {
-						frame = tex.currentFrame
-					}
-				}
-
-				Canvas.updateUVFace(mesh.geometry.attributes.uv, fIndex, {uv: uv}, frame, stretch)
-			})
-
-		} else {
-		
-			var stretch = 1
-			var frame = 0
-
-			Canvas.face_order.forEach((face, fIndex) => {
-
-				if (cube.faces[face].texture === null) return;
-
-				stretch = 1;
-				frame = 0;
-				let tex = cube.faces[face].getTexture();
-				if (tex instanceof Texture && tex.frameCount !== 1) {
-					stretch = tex.frameCount
-					if (animation === true && tex.currentFrame) {
-						frame = tex.currentFrame
-					}
-				}
-				Canvas.updateUVFace(mesh.geometry.attributes.uv, fIndex, cube.faces[face], frame, stretch)
-			})
-
-		}
-		mesh.geometry.attributes.uv.needsUpdate = true;
-		return mesh.geometry
+		// Deprecated
+		return Cube.preview_controller.updateUV(cube, animation);
 	},
-	updateUVFace(vertex_uvs, index, face, frame = 0, stretch = 1) {
-		stretch *= -1;
-		var pw = Project.texture_width;
-		var ph = Project.texture_height;
-		var arr = [
-			[face.uv[0]/pw, (face.uv[1]/ph)/stretch+1],
-			[face.uv[2]/pw, (face.uv[1]/ph)/stretch+1],
-			[face.uv[0]/pw, (face.uv[3]/ph)/stretch+1],
-			[face.uv[2]/pw, (face.uv[3]/ph)/stretch+1],
-		]
-		if (frame > 0 && stretch !== -1) {
-			//Animate
-			var offset = (1/stretch) * frame
-			arr[0][1] += offset
-			arr[1][1] += offset
-			arr[2][1] += offset
-			arr[3][1] += offset
-		}
-		var rot = (face.rotation+0)
-		while (rot > 0) {
-			let a = arr[0];
-			arr[0] = arr[2];
-			arr[2] = arr[3];
-			arr[3] = arr[1];
-			arr[1] = a;
-			rot = rot-90;
-		}
-		vertex_uvs.array.set(arr[0], index*8 + 0);  //0,1
-		vertex_uvs.array.set(arr[1], index*8 + 2);  //1,1
-		vertex_uvs.array.set(arr[2], index*8 + 4);  //0,0
-		vertex_uvs.array.set(arr[3], index*8 + 6);  //1,0
-	},
-	updatePaintingGrid() {
+	updatePixelGrid() {
 		Outliner.elements.forEach(element => {
-			if (element.preview_controller.updatePaintingGrid) {
-				element.preview_controller.updatePaintingGrid(element);
+			if (element.preview_controller.updatePixelGrid) {
+				element.preview_controller.updatePixelGrid(element);
 			}
 		})
 	},
@@ -1372,3 +1322,4 @@ const Canvas = {
 		return [width, height]
 	}
 }
+var buildGrid = Canvas.buildGrid;

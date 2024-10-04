@@ -25,21 +25,37 @@ const Outliner = {
 			title: tl('switches.lock'),
 			icon: ' fas fa-lock',
 			icon_off: ' fas fa-lock-open',
-			advanced_option: true
+			advanced_option: true,
+			visibilityException(node) {
+				return node.locked
+			}
 		},
 		export: {
 			id: 'export',
 			title: tl('switches.export'),
-			icon: ' fa fa-camera',
+			icon: ' far fa-square-check',
 			icon_off: ' far fa-window-close',
-			advanced_option: true
+			advanced_option: true,
+			condition: {modes: ['edit']},
+			visibilityException(node) {
+				return !node.export;
+			}
 		},
 		shade: {
 			id: 'shade',
-			get title() {return Project.box_uv ? tl('switches.mirror') : tl('switches.shade')},
-			get icon() {return Project.box_uv ? 'fa fa-star' : 'fa fa-star'},
-			get icon_off() {return Project.box_uv ? 'fas fa-star-half-alt' : 'far fa-star'},
-			advanced_option: true
+			condition: {modes: ['edit'], features: ['java_cube_shading_properties']},
+			title: tl('switches.shade'),
+			icon: 'fa fa-star',
+			icon_off: 'far fa-star',
+			advanced_option: true,
+		},
+		mirror_uv: {
+			id: 'mirror_uv',
+			condition: {modes: ['edit'], method: (element) => (element instanceof Group) ? element.children.find(c => c.box_uv) : element.box_uv},
+			title: tl('switches.mirror'),
+			icon: 'icon-mirror_x icon',
+			icon_off: 'icon-mirror_x icon',
+			advanced_option: true,
 		},
 		autouv: {
 			id: 'autouv',
@@ -48,6 +64,7 @@ const Outliner = {
 			icon_off: ' far fa-times-circle',
 			icon_alt: ' fa fa-magic',
 			advanced_option: true,
+			condition: {modes: ['edit']},
 			getState(element) {
 				if (!element.autouv) {
 					return false
@@ -77,17 +94,17 @@ Object.defineProperty(window, 'selected', {
 	}
 });
 //Colors
-var markerColors = [
-	{pastel: "#A2EBFF", standard: "#58C0FF", name: 'light_blue'},
-	{pastel: "#FFF899", standard: "#F4D714", name: 'yellow'},
-	{pastel: "#F1BB75", standard: "#EC9218", name: 'orange'},
-	{pastel: "#FF9B97", standard: "#FA565D", name: 'red'},
-	{pastel: "#C5A6E8", standard: "#B55AF8", name: 'purple'},
-	{pastel: "#A6C8FF", standard: "#4D89FF", name: 'blue'},
-	{pastel: "#7BFFA3", standard: "#00CE71", name: 'green'},
-	{pastel: "#BDFFA6", standard: "#AFFF62", name: 'lime'},
-	{pastel: "#FFA5D5", standard: "#F96BC5", name: 'pink'},
-	{pastel: "#E0E9FB", standard: "#C7D5F6", name: 'silver'}
+const markerColors = [
+	{pastel: "#A2EBFF", standard: "#58C0FF", id: 'light_blue'},
+	{pastel: "#FFF899", standard: "#F4D714", id: 'yellow'},
+	{pastel: "#F1BB75", standard: "#EC9218", id: 'orange'},
+	{pastel: "#FF9B97", standard: "#FA565D", id: 'red'},
+	{pastel: "#C5A6E8", standard: "#B55AF8", id: 'purple'},
+	{pastel: "#A6C8FF", standard: "#4D89FF", id: 'blue'},
+	{pastel: "#7BFFA3", standard: "#00CE71", id: 'green'},
+	{pastel: "#BDFFA6", standard: "#AFFF62", id: 'lime'},
+	{pastel: "#FFA5D5", standard: "#F96BC5", id: 'pink'},
+	{pastel: "#E0E9FB", standard: "#C7D5F6", id: 'silver'}
 ]
 class OutlinerNode {
 	constructor(uuid) {
@@ -97,7 +114,6 @@ class OutlinerNode {
 	}
 	init() {
 		OutlinerNode.uuids[this.uuid] = this;
-		//this.constructor.all.safePush(this);
 		if (!this.parent || (this.parent === 'root' && Outliner.root.indexOf(this) === -1)) {
 			this.addTo('root')
 		}
@@ -107,9 +123,8 @@ class OutlinerNode {
 		return this.constructor.preview_controller;
 	}
 	//Sorting
-	sortInBefore(element, index_mod) {
+	sortInBefore(element, index_mod = 0) {
 		var index = -1;
-		index_mod = index_mod || 0;
 
 		if (element.parent === 'root') {
 			index = Outliner.root.indexOf(element)
@@ -136,7 +151,7 @@ class OutlinerNode {
 		if (!group) {
 			group = 'root'
 		} else if (group !== 'root') {
-			if (group.type !== 'group') {
+			if (!group.children) {
 				if (group.parent === 'root') {
 					index = Outliner.root.indexOf(group)+1
 					group = 'root'
@@ -149,11 +164,12 @@ class OutlinerNode {
 		this.removeFromParent()
 
 		//Get Array
+		let arr;
 		if (group === 'root') {
-			var arr = Outliner.root
+			arr = Outliner.root
 			this.parent = 'root'
 		} else {
-			var arr = group.children
+			arr = group.children
 			this.parent = group
 		}
 
@@ -187,7 +203,7 @@ class OutlinerNode {
 		Vue.nextTick(() => {
 			var el = $('#'+scope.uuid)
 			if (el.length === 0) return;
-			var outliner_pos = $('#outliner').offset().top
+			var outliner_pos = $('#panel_outliner').offset().top
 
 			var el_pos = el.offset().top
 			if (el_pos > outliner_pos && el_pos < $('#cubes_list').height() + outliner_pos) return;
@@ -225,7 +241,6 @@ class OutlinerNode {
 	}
 	remove() {
 		if (this.preview_controller) this.preview_controller.remove(this);
-		this.constructor.all.remove(this);
 		if (OutlinerNode.uuids[this.uuid] == this) delete OutlinerNode.uuids[this.uuid];
 		this.removeFromParent();
 	}
@@ -247,8 +262,17 @@ class OutlinerNode {
 			scope.name = scope.old_name;
 			if (scope.type === 'group') {
 				Undo.initEdit({outliner: true})
+			} else if (scope.type === 'armature_bone') {
+				Undo.initEdit({elements: [scope], outliner: true})
 			} else {
 				Undo.initEdit({elements: [scope]})
+			}
+			if (this.constructor.animator) {
+				Animation.all.forEach(animation => {
+					if (animation.animators[scope.uuid] && animation.animators[scope.uuid].keyframes.length) {
+						animation.saved = false;
+					}
+				})
 			}
 			scope.name = name
 			scope.sanitizeName();
@@ -290,8 +314,9 @@ class OutlinerNode {
 		let zero_based = this.name.match(/[^\d]0$/) !== null;
 		var name = this.name.replace(/\d+$/, '').replace(/\s+/g, '_');
 		function check(n) {
+			let n_lower = n.toLowerCase();
 			for (var i = 0; i < others.length; i++) {
-				if (others[i] !== scope && others[i].name.toLowerCase() == n.toLowerCase()) return false;
+				if (others[i] !== scope && others[i].name.toLowerCase() === n_lower) return false;
 			}
 			return true;
 		}
@@ -315,6 +340,13 @@ class OutlinerNode {
 			return true;
 		}
 	}
+	matchesFilter(search_term_lowercase) {
+		if (this.name.toLowerCase().includes(search_term_lowercase)) return true;
+		if (this.children) {
+			return this.children.find(child => child.matchesFilter(search_term_lowercase));
+		}
+		return false;
+	}
 	isChildOf(group, max_levels) {
 		function iterate(obj, level) {
 			if (!obj || obj === 'root') {
@@ -327,12 +359,6 @@ class OutlinerNode {
 			return false;
 		}
 		return iterate(this.parent, 0)
-	}
-	get mirror_uv() {
-		return !this.shade;
-	}
-	set mirror_uv(val) {
-		this.shade = !val;
 	}
 }
 class OutlinerElement extends OutlinerNode {
@@ -350,14 +376,12 @@ class OutlinerElement extends OutlinerNode {
 		return this;
 	}
 	remove() {
-		super.remove()
-		selected.remove(this);
-		elements.remove(this);
-		this.constructor.selected.remove(this);
+		super.remove();
+		Project.selected_elements.remove(this);
+		Project.elements.remove(this);
 		return this;
 	}
 	showContextMenu(event) {
-		Prop.active_panel = 'outliner'
 		if (this.locked) return this;
 		if (!this.selected) {
 			this.select()
@@ -365,11 +389,20 @@ class OutlinerElement extends OutlinerNode {
 		this.menu.open(event, this)
 		return this;
 	}
-	forSelected(fc, undo_tag) {
-		if (this.constructor.selected.length <= 1 || !this.constructor.selected.includes(this)) {
-			var edited = [this]
+	forSelected(fc, undo_tag, selection_method) {
+		let selected = this.constructor.selected;
+		if (selected.length <= 1 || !selected.includes(this)) {
+			var edited = [this];
 		} else {
-			var edited = this.constructor.selected
+			var edited = selected;
+		}
+		if (selection_method == 'all_in_group') {
+			edited = edited.slice();
+			edited.slice().forEach(element => {
+				element.getParentArray().forEach(child => {
+					if (child.faces) edited.safePush(child);
+				})
+			})
 		}
 		if (typeof fc === 'function') {
 			if (undo_tag) {
@@ -401,17 +434,22 @@ class OutlinerElement extends OutlinerNode {
 		} else {
 			selected.push(copy)
 		}
+		Property.resetUniqueValues(this.constructor, copy);
 		if (Condition(copy.needsUniqueName)) {
 			copy.createUniqueName()
 		}
 		TickUpdates.selection = true;
 		return copy;
 	}
-	select(event, isOutlinerClick) {
-		if (Modes.animate && this.constructor != NullObject) return false;
-		//Shiftv
-		var just_selected = []
-		if (event && (event.shiftKey === true || Pressing.overrides.shift) && this.getParentArray().includes(selected[selected.length-1]) && !Modes.paint && isOutlinerClick) {
+	select(event, is_outliner_click) {
+		if (Modes.animate && !this.constructor.animator) {
+			Blockbench.showQuickMessage('message.group_required_to_animate');
+			return false;
+		}
+		//Shift
+		var just_selected = [];
+		let allow_multi_select = (!Modes.paint || (Toolbox.selected.id == 'fill_tool' && BarItems.fill_mode.value == 'selected_elements'));
+		if (event && allow_multi_select && (event.shiftKey === true || Pressing.overrides.shift) && this.getParentArray().includes(selected[selected.length-1]) && is_outliner_click) {
 			var starting_point;
 			var last_selected = selected[selected.length-1]
 			this.getParentArray().forEach((s, i) => {
@@ -442,7 +480,7 @@ class OutlinerElement extends OutlinerNode {
 			})
 
 		//Control
-		} else if (event && !Modes.paint && (event.ctrlOrCmd || event.shiftKey || Pressing.overrides.ctrl || Pressing.overrides.shift)) {
+		} else if (event && allow_multi_select && (event.ctrlOrCmd || event.shiftKey || Pressing.overrides.ctrl || Pressing.overrides.shift)) {
 			if (selected.includes(this)) {
 				selected.replace(selected.filter((e) => {
 					return e !== this
@@ -454,11 +492,15 @@ class OutlinerElement extends OutlinerNode {
 
 		//Normal
 		} else {
-			selected.forEachReverse(obj => obj.unselect())
+			selected.forEachReverse(obj => {
+				if (obj != this) obj.unselect();
+			})
 			if (Group.selected) Group.selected.unselect()
 			this.selectLow()
 			just_selected.push(this)
-			this.showInOutliner()
+			if (settings.outliner_reveal_on_select.value) {
+				this.showInOutliner()
+			}
 		}
 		if (Group.selected) {
 			Group.selected.unselect()
@@ -471,16 +513,17 @@ class OutlinerElement extends OutlinerNode {
 		return this;
 	}
 	selectLow() {
-		Outliner.selected.safePush(this);
-		this.constructor.selected.safePush(this)
+		Project.selected_elements.safePush(this);
 		this.selected = true;
 		TickUpdates.selection = true;
 		return this;
 	}
 	unselect() {
-		selected.remove(this);
+		Project.selected_elements.remove(this);
 		this.selected = false;
-		this.constructor.selected.remove(this);
+		if (UVEditor.selected_element_faces[this.uuid]) {
+			delete UVEditor.selected_element_faces[this.uuid];
+		}
 		TickUpdates.selection = true;
 		return this;
 	}
@@ -514,18 +557,26 @@ class OutlinerElement extends OutlinerNode {
 			console.warn('You cannot modify this')
 		}
 	})
+	OutlinerElement.hasAny = function() {
+		return Outliner.elements.length > 0 && Outliner.elements.findIndex(element => element instanceof this) !== -1;
+	}
+	OutlinerElement.hasSelected = function() {
+		return Outliner.selected.length > 0 && Outliner.selected.findIndex(element => element instanceof this) !== -1;
+	}
 	OutlinerElement.types = {};
 
 
-class NodePreviewController {
+class NodePreviewController extends EventSystem {
 	constructor(type, data = {}) {
+		super();
 		this.type = type;
+		this.events = {};
 		type.preview_controller = this;
 
 		this.updateGeometry = null;
 		this.updateUV = null;
 		this.updateFaces = null;
-		this.updatePaintingGrid = null;
+		this.updatePixelGrid = null;
 		this.updateHighlight = null;
 
 		Object.assign(this, data);
@@ -539,6 +590,8 @@ class NodePreviewController {
 		mesh.visible = element.visibility;
 		mesh.rotation.order = 'ZYX';
 		this.updateTransform(element);
+
+		this.dispatchEvent('setup', {element});
 	}
 	remove(element) {
 		let {mesh} = element;
@@ -551,6 +604,8 @@ class NodePreviewController {
 			}
 		}
 		delete Project.nodes_3d[element.uuid];
+
+		this.dispatchEvent('remove', {element});
 	}
 	updateAll(element) {
 		if (!element.mesh) this.setup(element);
@@ -559,7 +614,9 @@ class NodePreviewController {
 		if (this.updateGeometry) this.updateGeometry(element);
 		if (this.updateUV) this.updateUV(element);
 		if (this.updateFaces) this.updateFaces(element);
-		if (this.updatePaintingGrid) this.updatePaintingGrid(element);
+		if (this.updatePixelGrid) this.updatePixelGrid(element);
+
+		this.dispatchEvent('update_all', {element});
 	}
 	updateTransform(element) {
 		let mesh = element.mesh;
@@ -598,23 +655,65 @@ class NodePreviewController {
 		}
 
 		mesh.updateMatrixWorld();
+
+		this.dispatchEvent('update_transform', {element});
 	}
 	updateVisibility(element) {
 		element.mesh.visible = element.visibility;
+
+		this.dispatchEvent('update_visibility', {element});
 	}
 	updateSelection(element) {
 		let {mesh} = element;
 		if (mesh && mesh.outline) {
-			mesh.outline.visible = element.selected
+			if (Modes.paint && settings.outlines_in_paint_mode.value === false) {
+				mesh.outline.visible = false;
+			} else {
+				mesh.outline.visible = element.selected;
+			}
+		}
+
+		this.dispatchEvent('update_selection', {element});
+	}
+	updateRenderOrder(element) {
+		switch (element.render_order) {
+			case 'behind': element.mesh.renderOrder = -1; break;	
+			case 'in_front': element.mesh.renderOrder = 1; break;	
+			default: element.mesh.renderOrder = 0; break;	
 		}
 	}
 }
+/**
+Standardied outliner node context menu group order
+
+(mesh editing)
+(settings)
+copypaste
+	copy, paste, duplicate
+outliner_control
+	group, move
+(add)
+settings
+	color, options, texture
+manage
+	visibility, rename, delete
+ */
+Outliner.control_menu_group = [
+	new MenuSeparator('outliner_control'),
+	'copy',
+	'paste',
+	'duplicate',
+	'group_elements',
+	'move_to_group',
+]
 
 OutlinerElement.registerType = function(constructor, id) {
 	OutlinerElement.types[id] = constructor;
 	Object.defineProperty(constructor, 'all', {
 		get() {
-			return Project.elements ? Project.elements.filter(element => element instanceof constructor) : [];
+			return (Project.elements?.length && Project.elements.find(element => element instanceof constructor))
+				 ? Project.elements.filter(element => element instanceof constructor)
+				 : [];
 		},
 		set(arr) {
 			console.warn('You cannot modify this')
@@ -622,7 +721,9 @@ OutlinerElement.registerType = function(constructor, id) {
 	})
 	Object.defineProperty(constructor, 'selected', {
 		get() {
-			return Project.selected_elements ? Project.selected_elements.filter(element => element instanceof constructor) : [];
+			return (Project.selected_elements?.length && Project.selected_elements.find(element => element instanceof constructor))
+				 ? Project.selected_elements.filter(element => element instanceof constructor)
+				 : [];
 		},
 		set(group) {
 			console.warn('You cannot modify this')
@@ -646,66 +747,46 @@ Array.prototype.findRecursive = function(key1, val) {
 	return undefined;
 }
 
-function compileGroups(undo, lut) {
-	var result = []
+function compileGroups() {
+	let result = [];
 	function iterate(array, save_array) {
-		var i = 0;
-		for (var element of array) {
-			if (element.type === 'group') {
-
-				if (lut === undefined || element.export === true) {
-
-					var obj = element.compile(undo)
-
-					if (element.children.length > 0) {
-						iterate(element.children, obj.children)
-					}
-					save_array.push(obj)
+		let i = 0;
+		for (let element of array) {
+			if (element.children instanceof Array) {
+				let copy = element.compile(true)
+				if (element.children.length > 0) {
+					iterate(element.children, copy.children)
 				}
+				save_array.push(copy)
 			} else {
-				if (undo) {
-					save_array.push(element.uuid)
-				} else {
-					if (lut) {
-						var index = lut[elements.indexOf(element)]
-					} else {
-						var index = elements.indexOf(element)
-					}
-					if (index >= 0) {
-						save_array.push(index)
-					}
-				}
+				save_array.push(element.uuid)
 			}
 			i++;
 		}
 	}
-	iterate(Outliner.root, result)
+	iterate(Outliner.root, result);
 	return result;
 }
-function parseGroups(array, import_reference, startIndex) {
+function parseGroups(array, add_to_project) {
 	function iterate(array, save_array, addGroup) {
 		var i = 0;
 		while (i < array.length) {
 			if (typeof array[i] === 'number' || typeof array[i] === 'string') {
 
-				if (typeof array[i] === 'number') {
-					var obj = elements[array[i] + (startIndex ? startIndex : 0) ]
-				} else {
-					var obj = OutlinerNode.uuids[array[i]];
-				}
+				let obj = OutlinerNode.uuids[array[i]];
 				if (obj) {
-					obj.removeFromParent()
-					save_array.push(obj)
-					obj.parent = addGroup
+					obj.removeFromParent();
+					save_array.push(obj);
+					obj.parent = addGroup;
 				}
 			} else {
 				if (OutlinerNode.uuids[array[i].uuid] instanceof Group) {
 					OutlinerNode.uuids[array[i].uuid].removeFromParent();
 					delete OutlinerNode.uuids[array[i].uuid];
 				}
-				var obj = new Group(array[i], array[i].uuid)
+				let obj = new Group(array[i], array[i].uuid)
 				obj.parent = addGroup
-				obj.isOpen = !!array[i].isOpen
+				obj.isOpen = !!array[i].isOpen;
 				if (array[i].uuid) {
 					obj.uuid = array[i].uuid
 				}
@@ -714,41 +795,44 @@ function parseGroups(array, import_reference, startIndex) {
 				if (array[i].children && array[i].children.length > 0) {
 					iterate(array[i].children, obj.children, obj)
 				}
-				if (array[i].content && array[i].content.length > 0) {
-					iterate(array[i].content, obj.children, obj)
-				}
 			}
 			i++;
 		}
 	}
-	if (import_reference instanceof Group && startIndex !== undefined) {
-		iterate(array, import_reference.children, import_reference)
-	} else {
-		if (!import_reference) {
-			Group.all.forEach(group => {
-				group.removeFromParent();
-			})
-			Group.all.empty();
-		}
-		iterate(array, Outliner.root, 'root');
+	if (!add_to_project) {
+		Group.all.forEach(group => {
+			group.removeFromParent();
+		})
+		Group.all.empty();
 	}
+	iterate(array, Outliner.root, 'root');
 }
 
 // Dropping
-function dropOutlinerObjects(item, target, event, order) {
+function moveOutlinerSelectionTo(item, target, event, order) {
 	let duplicate = event.altKey || Pressing.overrides.alt;
-	if (item.type === 'group' && target && target.parent) {
+	if (item.children instanceof Array && target && target.parent) {
 		var is_parent = false;
 		function iterate(g) {
-			if (!(is_parent = g === item) && g.parent.type === 'group') {
+			if (!(is_parent = g === item) && g.parent.children instanceof Array) {
 				iterate(g.parent)
 			}
 		}
 		iterate(target)
 		if (is_parent) return;
 	}
-	if (item instanceof OutlinerElement && selected.includes( item )) {
-		var items = selected.slice();
+	if (item instanceof OutlinerElement && Outliner.selected.includes( item )) {
+		var items = [];
+		// ensure elements are in displayed order
+		Outliner.root.forEach(node => {
+			if (node instanceof Group) {
+				node.forEachChild(child => {
+					if (child.selected && child instanceof Group == false) items.push(child);
+				})
+			} else if (node.selected) {
+				items.push(node);
+			}
+		})
 	} else {
 		var items = [item];
 	}
@@ -758,11 +842,10 @@ function dropOutlinerObjects(item, target, event, order) {
 	} else {
 		Undo.initEdit({outliner: true, selection: true})
 		var updatePosRecursive = function(item) {
-			if (item.type == 'group') {
-				if (item.children && item.children.length) {
-					item.children.forEach(updatePosRecursive)
-				}
-			} else {
+			if (item.children && item.children.length) {
+				item.children.forEach(updatePosRecursive)
+			}
+			if (item.preview_controller?.updateTransform) {
 				item.preview_controller.updateTransform(item);
 			}
 		}
@@ -811,7 +894,8 @@ function dropOutlinerObjects(item, target, event, order) {
 		updateSelection()
 		Undo.finishEdit('Duplicate selection', {elements: selected, outliner: true, selection: true})
 	} else {
-		Undo.finishEdit('Drag elements in outliner')
+		Transformer.updateSelection()
+		Undo.finishEdit('Move elements in outliner')
 	}
 }
 
@@ -888,13 +972,153 @@ function toggleCubeProperty(key) {
 	if (key === 'visibility') {
 		Canvas.updateVisibility()
 	}
-	if (key === 'shade' && Project.box_uv) {
+	if (key === 'mirror_uv') {
 		Canvas.updateUVs();
 	}
 	Undo.finishEdit('Toggle ' + key)
 }
 
 StateMemory.init('advanced_outliner_toggles', 'boolean')
+
+SharedActions.add('rename', {
+	subject: 'outliner',
+	condition: {modes: ['edit', 'paint']},
+	priority: -1,
+	run() {
+		renameOutliner();
+	}
+});
+SharedActions.add('delete', {
+	subject: 'outliner',
+	condition: () => ((Modes.edit || Modes.paint) && (selected.length || Group.selected)),
+	priority: -1,
+	run() {
+		if (Group.selected) {
+			Group.selected.remove(true)
+			return;
+		}
+		let array;
+		Undo.initEdit({elements: selected, outliner: true, selection: true})
+		if (array == undefined) {
+			array = selected.slice(0)
+		} else if (array.constructor !== Array) {
+			array = [array]
+		} else {
+			array = array.slice(0)
+		}
+		array.forEach(function(s) {
+			s.remove(false)
+		})
+		TickUpdates.selection = true;
+		Undo.finishEdit('Delete elements')
+	}
+})
+SharedActions.add('duplicate', {
+	subject: 'outliner',
+	condition: () => Modes.edit && Group.selected && (Group.selected.matchesSelection() || selected.length === 0),
+	priority: -1,
+	run() {
+		let cubes_before = elements.length;
+		Undo.initEdit({outliner: true, elements: [], selection: true});
+		let original = Group.selected;
+		let all_original = [];
+		Group.selected.forEachChild(g => all_original.push(g), Group, true);
+
+		let new_group = Group.selected.duplicate();
+		let all_new = [];
+		new_group.forEachChild(g => all_new.push(g), Group, true);
+		new_group.select();
+
+		Undo.finishEdit('Duplicate group', {outliner: true, elements: elements.slice().slice(cubes_before), selection: true});
+
+		if (Animation.all.length) {
+			let affected_anims = Animation.all.filter(a => all_original.find(bone => a.animators[bone.uuid]?.keyframes.length));
+			if (affected_anims) {
+				Blockbench.showMessageBox({
+					translateKey: 'duplicate_bone_copy_animation',
+					message: tl('message.duplicate_bone_copy_animation.message', [affected_anims.length]),
+					buttons: ['dialog.yes', 'dialog.no'],
+				}, result => {
+					if (result == 1) return;
+
+					Undo.initEdit({animations: affected_anims});
+					for (let animation of affected_anims) {
+						for (let i = 0; i < all_original.length; i++) {
+							let orig_animator = animation.animators[all_original[i].uuid];
+							if (!orig_animator) continue;
+							let new_animator = animation.getBoneAnimator(all_new[i]);
+		
+							new_animator.rotation_global = orig_animator.rotation_global;
+							for (let kf of orig_animator.keyframes) {
+								new_animator.addKeyframe(kf);
+							}
+						}
+					}
+					Undo.finishEdit('Copy animations of duplicated bones');
+				})
+			}
+		}
+	}
+})
+SharedActions.add('duplicate', {
+	subject: 'outliner',
+	condition: () => Modes.edit && Outliner.selected.length,
+	priority: -2,
+	run() {
+		let added_elements = [];
+		Undo.initEdit({elements: added_elements, outliner: true, selection: true})
+		selected.forEachReverse(function(obj, i) {
+			let copy = obj.duplicate();
+			added_elements.push(copy);
+		})
+		BarItems.move_tool.select();
+		Undo.finishEdit('Duplicate elements')
+	}
+})
+SharedActions.add('select_all', {
+	subject: 'outliner',
+	condition: () => Modes.edit || Modes.paint,
+	priority: -2,
+	run() {
+		let selectable_elements = Outliner.elements.filter(element => !element.locked);
+		if (Outliner.selected.length < selectable_elements.length) {
+			if (Outliner.root.length == 1 && !Outliner.root[0].locked) {
+				Outliner.root[0].select();
+			} else {
+				selectable_elements.forEach(obj => {
+					obj.selectLow()
+				})
+				TickUpdates.selection = true;
+			}
+		} else {
+			unselectAllElements()
+		}
+	}
+})
+SharedActions.add('unselect_all', {
+	subject: 'outliner',
+	condition: () => Modes.edit || Modes.paint,
+	priority: -2,
+	run() {
+		unselectAllElements()
+	}
+})
+SharedActions.add('invert_selection', {
+	subject: 'outliner',
+	condition: () => Modes.edit || Modes.paint,
+	priority: -2,
+	run() {
+		Outliner.elements.forEach(element => {
+			if (element.selected) {
+				element.unselect()
+			} else {
+				element.selectLow()
+			}
+		})
+		if (Group.selected) Group.selected.unselect();
+		updateSelection();
+	}
+})
 
 BARS.defineActions(function() {
 	new Toggle('outliner_toggle', {
@@ -906,6 +1130,19 @@ BARS.defineActions(function() {
 			Outliner.vue.options.show_advanced_toggles = value;
 			StateMemory.advanced_outliner_toggles = value;
 			StateMemory.save('advanced_outliner_toggles');
+		}
+	})
+	new Toggle('search_outliner', {
+		icon: 'search',
+		category: 'edit',
+		onChange(value) {
+			Outliner.vue._data.options.search_term = '';
+			Outliner.vue._data.search_enabled = value;
+			if (value) {
+				Vue.nextTick(() => {
+					document.getElementById('outliner_search_bar').firstChild.focus();
+				});
+			}
 		}
 	})
 	new BarText('cube_counter', {
@@ -957,6 +1194,35 @@ BARS.defineActions(function() {
 		}
 	})
 
+	new Action('move_to_group', {
+		icon: 'drive_file_move',
+		category: 'edit',
+		searchable: true,
+		children(element) {
+			let groups = getAllGroups();
+			let root = {
+				name: 'Root',
+				icon: 'list_alt',
+				click(event) {
+					moveOutlinerSelectionTo(element, undefined, event);
+				}
+			};
+			return [root, ...groups.map(group => {
+				return {
+					name: group.name,
+					icon: 'folder',
+					color: markerColors[group.color % markerColors.length] && markerColors[group.color % markerColors.length].standard,
+					click(event) {
+						moveOutlinerSelectionTo(element, group, event);
+						element.showInOutliner();
+					}
+				}
+			})]
+		},
+		click(event) {
+			new Menu('move_to_group', this.children(this), {searchable: true}).open(event.target, this)
+		}
+	})
 	new Action('sort_outliner', {
 		icon: 'sort_by_alpha',
 		category: 'edit',
@@ -999,27 +1265,38 @@ BARS.defineActions(function() {
 				'-1': 'generic.all'
 			}
 			markerColors.forEach((color, i) => {
-				color_options[i] = 'cube.color.' + color.name;
+				color_options[i] = color.name || 'cube.color.' + color.id;
 			})
-			let dialog = new Dialog({
+			let type_options = {
+				all: 'generic.all'
+			};
+			for (let type in OutlinerElement.types) {
+				type_options[type] = tl(`data.${type}`);
+				if (type_options[type].includes('.')) {
+					type_options[type] = OutlinerElement.types[type].display_name || OutlinerElement.types[type].name;
+				}
+			}
+			new Dialog({
 				id: 'selection_creator',
 				title: 'dialog.select.title',
 				form_first: true,
 				form: {
-					new: {label: 'dialog.select.new', type: 'checkbox', value: true},
+					mode: {label: 'dialog.select.mode', type: 'select', options: {
+						new: 'dialog.select.mode.new',
+						add: 'dialog.select.mode.add',
+						remove: 'dialog.select.mode.remove',
+						in_selection: 'dialog.select.mode.in_selection',
+					}},
 					group: {label: 'dialog.select.group', type: 'checkbox'},
+					separate: '_',
 					name: {label: 'dialog.select.name', type: 'text'},
+					type: {label: 'dialog.select.type', type: 'select', options: type_options},
+					color: {label: 'menu.cube.color', type: 'select', value: '-1', options: color_options},
 					texture: {label: 'data.texture', type: 'text', list: Texture.all.map(tex => tex.name)},
-					color: {label: 'menu.cube.color', type: 'select', value: '-1', options: color_options}
+					random: {label: 'dialog.select.random', type: 'range', min: 0, max: 100, step: 1, value: 100}
 				},
-				lines: [
-					`<div class="dialog_bar form_bar">
-						<label class="name_space_left">${tl('dialog.select.random')}</label>
-						<input type="range" min="0" max="100" step="1" value="100" class="tool half" style="width: 100%;" id="selgen_random">
-					</div>`
-				],
 				onConfirm(formData) {
-					if (formData.new) {
+					if (formData.mode == 'new' || formData.mode == 'in_selection') {
 						selected.empty();
 					}
 					let selected_group = Group.selected;
@@ -1028,14 +1305,17 @@ BARS.defineActions(function() {
 					}
 					var name_seg = formData.name.toUpperCase()
 					var tex_seg = formData.texture.toLowerCase()
-					var rdm = $('#selgen_random').val()/100
 				
 					var array = Outliner.elements;
-					if ($('#selgen_group').is(':checked') && selected_group) {
+					if (formData.group && selected_group) {
 						array = selected_group.children
+					}
+					if (formData.mode == 'in_selection' || formData.mode == 'remove') {
+						array = array.slice().filter(el => el.selected);
 					}
 				
 					array.forEach(function(obj) {
+						if (obj.type !== formData.type && formData.type !== 'all') return;
 						if (obj.name.toUpperCase().includes(name_seg) === false) return;
 						if (obj.faces && tex_seg && !Format.single_texture) {
 							var has_tex = false;
@@ -1050,8 +1330,12 @@ BARS.defineActions(function() {
 						if (formData.color != '-1') {
 							if (obj.setColor == undefined || obj.color.toString() != formData.color) return;
 						}
-						if (Math.random() > rdm) return;
-						selected.safePush(obj)
+						if (Math.random() > formData.random/100) return;
+						if (formData.mode == 'remove') {
+							selected.remove(obj);
+						} else {
+							selected.safePush(obj);
+						}
 					})
 					updateSelection()
 					if (selected.length) {
@@ -1063,60 +1347,35 @@ BARS.defineActions(function() {
 			$('.dialog#selection_creator .form_bar_name > input').focus()
 		}
 	})
-	new Action('invert_selection', {
-		icon: 'swap_vert',
-		category: 'edit',
-		keybind: new Keybind({key: 'i', ctrl: true}),
-		condition: () => Modes.edit || Modes.paint,
-		click: function () {
-			elements.forEach(function(s) {
-				if (s.selected) {
-					s.unselect()
-				} else {
-					s.selectLow()
-				}
-			})
-			if (Group.selected) Group.selected.unselect()
-			updateSelection()
-			Blockbench.dispatchEvent('invert_selection')
-		}
-	})
-	new Action('select_all', {
-		icon: 'select_all',
-		category: 'edit',
-		condition: () => !Modes.display,
-		keybind: new Keybind({key: 'a', ctrl: true}),
-		click: function () {selectAll()}
-	})
 
-	let enabled = false;
-	let were_hidden_before = [];
 	new Action('hide_everything_except_selection', {
 		icon: 'fa-glasses',
 		category: 'view',
 		keybind: new Keybind({key: 'i'}),
 		condition: {modes: ['edit', 'paint']},
 		click() {
-			enabled = !enabled;
+			if (Painter.painting) return;
+			let enabled = !Project.only_hidden_elements;
 
-			let affected = Project.elements.filter(el => typeof el.visibility == 'boolean' && (!el.selected || were_hidden_before.includes(el.uuid)));
-			Undo.initEdit({elements: affected})
-			affected.forEach(el => {
-				if (enabled) {
-					if (el.visibility) were_hidden_before.push(el.uuid);
-					el.visibility = !!el.selected;
-				} else {
-					el.visibility = were_hidden_before.includes(el.uuid);
-				}
-			})
-			if (!enabled) were_hidden_before.empty();
+			if (Project.only_hidden_elements) {
+				let affected = Project.elements.filter(el => typeof el.visibility == 'boolean' && Project.only_hidden_elements.includes(el.uuid));
+				Undo.initEdit({elements: affected})
+				affected.forEach(el => {
+					el.visibility = true;
+				})
+				delete Project.only_hidden_elements;
+			} else {
+				let affected = Project.elements.filter(el => typeof el.visibility == 'boolean' && !el.selected && el.visibility);
+				Undo.initEdit({elements: affected})
+				affected.forEach(el => {
+					el.visibility = false;
+				})
+				Project.only_hidden_elements = affected.map(el => el.uuid);
+			}
+
 			Canvas.updateVisibility();
 			Undo.finishEdit('Toggle visibility on everything except selection');
 		}
-	})
-	Blockbench.on('unselect_project', () => {
-		enabled = false;
-		were_hidden_before.empty();
 	})
 })
 
@@ -1124,58 +1383,63 @@ Interface.definePanels(function() {
 
 	var VueTreeItem = Vue.extend({
 		template: 
-		'<li class="outliner_node" v-bind:class="{ parent_li: node.children && node.children.length > 0}" v-bind:id="node.uuid">' +
+		`<li class="outliner_node" v-bind:class="{ parent_li: node.children && node.children.length > 0}" v-bind:id="node.uuid" v-bind:style="{'--indentation': indentation}">` +
 			`<div
 				class="outliner_object"
-				v-bind:class="{ cube: node.type === 'cube', group: node.type === 'group', selected: node.selected }"
-				v-bind:style="{'padding-left': indentation + 'px'}"
 				@contextmenu.prevent.stop="node.showContextMenu($event)"
 				@click="node.select($event, true)"
-				@touchstart="node.select($event)" :title="node.title"
+				:title="node.title"
 				@dblclick.stop.self="!node.locked && renameOutliner()"
 			>` +
 				//Opener
 				
-				'<i v-if="node.children && node.children.length > 0 && (!options.hidden_types.length || node.children.some(node => !options.hidden_types.includes(node.type)))" v-on:click.stop="node.isOpen = !node.isOpen" class="icon-open-state fa" :class=\'{"fa-angle-right": !node.isOpen, "fa-angle-down": node.isOpen}\'></i>' +
-				'<i v-else class="outliner_opener_placeholder"></i>' +
-				//Main
-				'<i :class="node.icon" :style="(outliner_colors.value && node.color >= 0) && {color: markerColors[node.color].pastel}" v-on:dblclick.stop="doubleClickIcon(node)"></i>' +
-				'<input type="text" class="cube_name tab_target" :class="{locked: node.locked}" v-model="node.name" disabled>' +
+				`<i v-if="node.children && node.children.length > 0 && (!options.hidden_types.length || node.children.some(node => !options.hidden_types.includes(node.type)))" @click.stop="node.isOpen = !node.isOpen" class="icon-open-state fa" :class='{"fa-angle-right": !node.isOpen, "fa-angle-down": node.isOpen}'></i>
+				<i v-else class="outliner_opener_placeholder"></i>
+
+				<dynamic-icon :icon="node.icon.replace('fa ', '').replace(/ /g, '.')" :color="(outliner_colors.value && node.color >= 0) ? markerColors[node.color % markerColors.length].pastel : ''" v-on:dblclick.stop="doubleClickIcon(node)"></dynamic-icon>
+				<input type="text" class="cube_name tab_target" :class="{locked: node.locked}" v-model="node.name" disabled>` +
 
 
 				`<i v-for="btn in node.buttons"
-					v-if="(!btn.advanced_option || options.show_advanced_toggles || (btn.id === \'locked\' && node.isIconEnabled(btn)))"
+					v-if="Condition(btn, node) && (!btn.advanced_option || options.show_advanced_toggles || (btn.visibilityException && btn.visibilityException(node)) )"
 					class="outliner_toggle"
 					:class="getBtnClasses(btn, node)"
-					:title="btn.title"
+					:title="getBtnTooltip(btn, node)"
 					:toggle="btn.id"
 					@click.stop
 				></i>` +
 			'</div>' +
 			//Other Entries
 			'<ul v-if="node.isOpen">' +
-				'<vue-tree-item v-for="item in visible_children" :node="item" :options="options" :key="item.uuid"></vue-tree-item>' +
-				`<div class="outliner_line_guide" v-if="node.constructor.selected == node" v-bind:style="{left: indentation + 'px'}"></div>` +
+				'<vue-tree-item v-for="item in visible_children" :node="item" :depth="depth + 1" :options="options" :key="item.uuid"></vue-tree-item>' +
+				`<div class="outliner_line_guide" v-if="node.constructor.selected == node"></div>` +
 			'</ul>' +
 		'</li>',
 		props: {
 			options: Object,
 			node: {
 				type: Object
-			}
+			},
+			depth: Number
 		},
 		data() {return {
-			outliner_colors: settings.outliner_colors
+			outliner_colors: settings.outliner_colors,
+			markerColors
 		}},
 		computed: {
 			indentation() {
-				return this.node.getDepth ? (limitNumber(this.node.getDepth(), 0, (this.width-100) / 16) * 16) : 0;
+				return limitNumber(this.depth, 0, (this.width-100) / 16);
 			},
 			visible_children() {
+				let filtered = this.node.children;
+				if (this.options.search_term) {
+					let search_term_lowercase = this.options.search_term.toLowerCase();
+					filtered = this.node.children.filter(child => child.matchesFilter(search_term_lowercase));
+				}
 				if (!this.options.hidden_types.length) {
-					return this.node.children;
+					return filtered;
 				} else {
-					return this.node.children.filter(node => !this.options.hidden_types.includes(node.type));
+					return filtered.filter(node => !this.options.hidden_types.includes(node.type));
 				}
 			}
 		},
@@ -1190,11 +1454,24 @@ Interface.definePanels(function() {
 			getBtnClasses: function (btn, node) {
 				let value = node.isIconEnabled(btn);
 				if (value === true) {
-					return [btn.icon];
+					return [(typeof btn.icon == 'function' ? btn.icon(node) : btn.icon)];
 				} else if (value === false) {
-					return [btn.icon_off, 'icon_off'];
+					return [(typeof btn.icon_off == 'function' ? btn.icon_off(node) : btn.icon_off), 'icon_off'];
 				} else {
-					return [btn.icon_alt];
+					return [(typeof btn.icon_alt == 'function' ? btn.icon_alt(node) : btn.icon_alt), 'icon_alt'];
+				}
+			},
+			getBtnTooltip: function (btn, node) {
+				let value = node.isIconEnabled(btn);
+				let text = btn.title + ': ';
+				if (value === true) {
+					return text + tl('generic.on');
+				} else if (value === false) {
+					return text + tl('generic.off');
+				} else if (value == 'alt') {
+					return text + tl(`switches.${btn.id}.alt`);
+				} else {
+					return text + value;
 				}
 			},
 			doubleClickIcon(node) {
@@ -1202,7 +1479,8 @@ Interface.definePanels(function() {
 					node.isOpen = !node.isOpen;
 				}
 			},
-			renameOutliner
+			renameOutliner,
+			Condition
 		}
 	});
 	Vue.component('vue-tree-item', VueTreeItem);
@@ -1222,11 +1500,12 @@ Interface.definePanels(function() {
 		return [OutlinerNode.uuids[target_node.id], target_node];
 	}
 	function getOrder(loc, obj) {
+
 		if (!obj) {
 			return;
 		} else if (obj instanceof Group) {
 			if (loc < 8) return -1;
-			if (loc > 24) return 1;
+			if (loc > 24 && (!obj.isOpen || obj.children.length === 0)) return 1;
 		} else {
 			if (loc < 16) return -1;
 			return 1;
@@ -1234,14 +1513,32 @@ Interface.definePanels(function() {
 		return 0;
 	}
 
-	Interface.Panels.outliner = new Panel({
-		id: 'outliner',
+	new Panel('outliner', {
 		icon: 'list_alt',
-		condition: {modes: ['edit', 'paint', 'animate', 'pose']},
-		toolbars: {
-			head: Toolbars.outliner
+		condition: {modes: ['edit', 'paint', 'animate', 'pose'], method: () => (!Format.image_editor && !(Modes.animate && AnimationController.selected))},
+		default_position: {
+			slot: 'right_bar',
+			float_position: [0, 0],
+			float_size: [300, 400],
+			height: 400
 		},
+		toolbars: [
+			new Toolbar('outliner', {
+				children: [
+					'add_mesh',
+					'add_cube',
+					'add_group',
+					'outliner_toggle',
+					'toggle_skin_layer',
+					'explode_skin_model',
+					'+',
+					'search_outliner',
+					'cube_counter'
+				]
+			})
+		],
 		growable: true,
+		resizable: true,
 		onResize() {
 			if (this.inside_vue) this.inside_vue.width = this.width;
 		},
@@ -1249,15 +1546,23 @@ Interface.definePanels(function() {
 			name: 'panel-outliner',
 			data() { return {
 				root: Outliner.root,
+				search_enabled: false,
 				options: {
 					width: 300,
 					show_advanced_toggles: StateMemory.advanced_outliner_toggles,
-					hidden_types: []
+					hidden_types: [],
+					search_term: ''
 				}
 			}},
 			methods: {
 				openMenu(event) {
-					Interface.Panels.outliner.menu.show(event)
+					Panels.outliner.menu.show(event)
+				},
+				updateSearch(event) {
+					if (this.search_enabled && !this.options.search_term && !document.querySelector('#outliner_search_bar > input:focus')) {
+						this.search_enabled = false;
+						BarItems.search_outliner.set(false);
+					}
 				},
 				dragToggle(e1) {
 					let [original] = eventTargetToNode(e1.target);
@@ -1266,9 +1571,11 @@ Interface.definePanels(function() {
 					let key = e1.target.getAttribute('toggle');
 					let previous_values = {};
 					let value = original[key];
+					let toggle_config = Outliner.buttons[key];
 					value = (typeof value == 'number') ? (value+1) % 3 : !value;
 
-					if (!(key == 'locked' || key == 'visibility' || Modes.edit)) return;
+					if (!toggle_config) return;
+					if (!Condition(toggle_config.condition, selected[0])) return;
 
 					function move(e2) {
 						convertTouchEvent(e2);
@@ -1288,18 +1595,22 @@ Interface.definePanels(function() {
 							} else if (!affected.includes(node) && (!node.locked || key == 'locked' || key == 'visibility')) {
 								let new_affected = [node];
 								if (node instanceof Group) {
-									node.forEachChild(node => new_affected.push(node))
+									if (toggle_config.change_children != false) {
+										node.forEachChild(node => {
+											if (node.buttons.find(b => b.id == key)) new_affected.push(node)
+										});
+									}
 									affected_groups.push(node);
-								} else if (node.selected && selected.length > 1) {
-									selected.forEach(el => {
-										if (node[key] != undefined) new_affected.safePush(el);
+								} else if (node.selected && Outliner.selected.length > 1) {
+									Outliner.selected.forEach(el => {
+										if (el.buttons.find(b => b.id == key)) new_affected.safePush(el);
 									})
 								}
 								new_affected.forEach(node => {
 									affected.push(node);
 									previous_values[node.uuid] = node[key];
 									node[key] = value;
-									if (key == 'shade' && node instanceof Cube) Canvas.updateUV(node);
+									if (key == 'mirror_uv' && node instanceof Cube) Canvas.updateUV(node);
 								})
 								// Update
 								if (key == 'visibility') Canvas.updateVisibility();
@@ -1317,7 +1628,7 @@ Interface.definePanels(function() {
 								node[key] = value;
 								if (key == 'shade') node.updateElement();
 							})
-							Undo.finishEdit(`toggle ${key} property`)
+							Undo.finishEdit(`Toggle ${key} property`)
 						}
 						removeEventListeners(document, 'mousemove touchmove', move);
 						removeEventListeners(document, 'mouseup touchend', off);
@@ -1345,7 +1656,7 @@ Interface.definePanels(function() {
 						function off(e2) {
 							removeEventListeners(document, 'mouseup touchend', off);
 							if (e1.target && e1.offsetX > e1.target.clientWidth) return;
-							if (e2.target && e2.target.id == 'cubes_list') unselectAll();
+							if (e2.target && e2.target.id == 'cubes_list') unselectAllElements();
 						}
 						addEventListeners(document, 'mouseup touchend', off);
 						return;
@@ -1394,10 +1705,10 @@ Interface.definePanels(function() {
 							if (open_menu) open_menu.hide();
 
 							if (!helper) {
-								helper = document.createElement('div');
-								helper.id = 'outliner_drag_helper';
-								let icon = document.createElement('i');		icon.className = item.icon;	helper.append(icon);
-								let span = document.createElement('span');	span.innerText = item.name;	helper.append(span);
+								helper = Interface.createElement('div', {id: 'outliner_drag_helper'}, [
+									Blockbench.getIconNode(item.icon.replace(/ /g, '.').replace(/^fa\./, '')),
+									Interface.createElement('label', {}, item.name)
+								]);
 								
 								if (item instanceof Group == false && Outliner.selected.length > 1) {
 									let counter = document.createElement('div');
@@ -1415,6 +1726,7 @@ Interface.definePanels(function() {
 							// drag
 							$('.drag_hover').removeClass('drag_hover');
 							$('.outliner_node[order]').attr('order', null);
+							$('.drag_hover_level').removeClass('drag_hover_level');
 
 							let target = document.elementFromPoint(e2.clientX, e2.clientY);
 							[drop_target, drop_target_node] = eventTargetToNode(target);
@@ -1423,6 +1735,10 @@ Interface.definePanels(function() {
 								order = getOrder(location, drop_target)
 								drop_target_node.setAttribute('order', order)
 								drop_target_node.classList.add('drag_hover');
+								let parent_node = drop_target_node.parentElement.parentElement;
+								if ((drop_target instanceof OutlinerElement || order) && parent_node && parent_node.classList.contains('outliner_node')) {
+									parent_node.classList.add('drag_hover_level');
+								}
 
 							} else if ($('#cubes_list').is(':hover')) {
 								$('#cubes_list').addClass('drag_hover');
@@ -1437,6 +1753,7 @@ Interface.definePanels(function() {
 						removeEventListeners(document, 'mouseup touchend', off);
 						$('.drag_hover').removeClass('drag_hover');
 						$('.outliner_node[order]').attr('order', null);
+						$('.drag_hover_level').removeClass('drag_hover_level');
 						if (Blockbench.isTouch) clearTimeout(timeout);
 
 						if (active && !open_menu) {
@@ -1444,9 +1761,9 @@ Interface.definePanels(function() {
 							let target = document.elementFromPoint(e2.clientX, e2.clientY);
 							[drop_target] = eventTargetToNode(target);
 							if (drop_target) {
-								dropOutlinerObjects(item, drop_target, e2, order);
+								moveOutlinerSelectionTo(item, drop_target, e2, order);
 							} else if ($('#cubes_list').is(':hover')) {
-								dropOutlinerObjects(item, undefined, e2);
+								moveOutlinerSelectionTo(item, undefined, e2);
 							}
 						}
 					}
@@ -1462,30 +1779,45 @@ Interface.definePanels(function() {
 					addEventListeners(document, 'mouseup touchend', off, {passive: false});
 				}
 			},
+			computed: {
+				filtered_root() {
+					if (!this.options.search_term) {
+						return this.root;
+					} else {
+						let search_term_lowercase = this.options.search_term.toLowerCase();
+						return this.root.filter(node => node.matchesFilter(search_term_lowercase))
+					}
+				}
+			},
 			template: `
 				<div>
-					<div class="toolbar_wrapper outliner"></div>
+					<search-bar id="outliner_search_bar" v-if="search_enabled" v-model="options.search_term" @input="updateSearch()" onfocusout="Panels.outliner.vue.updateSearch()" />
 					<ul id="cubes_list"
 						class="list mobile_scrollbar"
 						@contextmenu.stop.prevent="openMenu($event)"
 						@mousedown="dragNode($event)"
 						@touchstart="dragNode($event)"
 					>
-						<vue-tree-item v-for="item in root" :node="item" :options="options" :key="item.uuid"></vue-tree-item>
+						<vue-tree-item v-for="item in filtered_root" :node="item" :depth="0" :options="options" :key="item.uuid"></vue-tree-item>
 					</ul>
 				</div>
 			`
 		},
 		menu: new Menu([
-			'add_cube',
+			new MenuSeparator('add_element'),
 			'add_mesh',
+			'add_cube',
 			'add_texture_mesh',
 			'add_group',
-			'_',
-			'sort_outliner',
+			new MenuSeparator('copypaste'),
+			'paste',
+			new MenuSeparator('manage'),
 			'select_all',
+			'sort_outliner',
 			'collapse_groups',
 			'unfold_groups',
+			'search_outliner',
+			new MenuSeparator('options'),
 			'element_colors',
 			'outliner_toggle'
 		])
@@ -1504,6 +1836,28 @@ Interface.definePanels(function() {
 			if (Modes.edit) Interface.addSuggestedModifierKey('alt', 'modifier_actions.drag_to_duplicate');
 		}
 	})
+
+	if (!Blockbench.isMobile) {
+		new Panel('element', {
+			icon: 'fas.fa-cube',
+			condition: !Blockbench.isMobile && {modes: ['edit', 'pose']},
+			display_condition: () => Outliner.selected.length || Group.selected,
+			default_position: {
+				slot: 'right_bar',
+				float_position: [0, 0],
+				float_size: [300, 400],
+				height: 400
+			},
+			toolbars: [
+				Toolbars.element_position,
+				Toolbars.element_size,
+				Toolbars.element_stretch,
+				Toolbars.element_origin,
+				Toolbars.element_rotation,
+			]
+		})
+		Toolbars.element_origin.node.after(Interface.createElement('div', {id: 'element_origin_toolbar_anchor'}))
+	}
 })
 
 class Face {
@@ -1528,14 +1882,16 @@ class Face {
 		return this;
 	}
 	getTexture() {
-		if (Format.single_texture && this.texture !== null) {
+		if (Format.per_group_texture && this.element.parent instanceof Group && this.element.parent.texture) {
+			return Texture.all.findInArray('uuid', this.element.parent.texture);
+		}
+		if (this.texture !== null && (Format.single_texture || (Format.single_texture_default && (Format.per_group_texture || !this.texture)))) {
 			return Texture.getDefault();
 		}
 		if (typeof this.texture === 'string') {
 			return Texture.all.findInArray('uuid', this.texture)
-		} else {
-			return this.texture;
 		}
+		return this.texture;
 	}
 	reset() {
 		for (var key in Mesh.properties) {
@@ -1545,13 +1901,13 @@ class Face {
 		return this;
 	}
 	getSaveCopy(project) {
-		var copy = {
+		let copy = {
 			uv: this.uv,
 		}
-		for (var key in this.constructor.properties) {
+		for (let key in this.constructor.properties) {
 			if (this[key] != this.constructor.properties[key].default) this.constructor.properties[key].copy(this, copy);
 		}
-		var tex = this.getTexture()
+		let tex = this.getTexture()
 		if (tex === null) {
 			copy.texture = null;
 		} else if (tex instanceof Texture && project) {

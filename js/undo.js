@@ -3,26 +3,25 @@ class UndoSystem {
 		this.index = 0;
 		this.history = [];
 	}
+	startChange(amended) {
+		/*if (this.current_save && Painter.painting) {
+			throw 'Canceled edit: Cannot perform edits while painting'
+		}*/
+		/*if (this.current_save && Transformer.dragging) {
+			throw 'Canceled edit: Cannot perform other edits while transforming elements'
+		}*/
+		if (!amended && this.amend_edit_menu) {
+			this.closeAmendEditMenu();
+		}
+	}
 	initEdit(aspects, amended = false) {
 		if (aspects && aspects.cubes) {
 			console.warn('Aspect "cubes" is deprecated. Please use "elements" instead.');
 			aspects.elements = aspects.cubes;
 		}
-		/*
-		if (
-			aspects && this.current_save &&
-			Objector.equalKeys(aspects, this.current_save.aspects) &&
-			aspects.elements !== selected &&
-			this.history.length == this.index
-		) {
-			return;
-		}
-		- This still causes issues, for example with different texture selections
-		*/
-		if (!amended && this.amend_edit_menu) {
-			this.closeAmendEditMenu();
-		}
+		this.startChange(amended);
 		this.current_save = new UndoSystem.save(aspects)
+		Blockbench.dispatchEvent('init_edit', {aspects, amended, save: this.current_save})
 		return this.current_save;
 	}
 	finishEdit(action, aspects) {
@@ -43,8 +42,8 @@ class UndoSystem {
 		this.current_save = entry.post
 		if (this.history.length > this.index) {
 			this.history.length = this.index;
-			delete this.current_save;
 		}
+		delete this.current_save;
 	 
 		this.history.push(entry)
 
@@ -61,26 +60,30 @@ class UndoSystem {
 		}
 		return entry;
 	}
-	cancelEdit() {
+	cancelEdit(revert_changes = true) {
 		if (!this.current_save) return;
-		Canvas.outlines.children.empty();
-		if (this.amend_edit_menu) {
-			this.closeAmendEditMenu();
+		this.startChange();
+		if (revert_changes) {
+			Canvas.outlines.children.empty();
+			this.loadSave(this.current_save, new UndoSystem.save(this.current_save.aspects))
 		}
-		this.loadSave(this.current_save, new UndoSystem.save(this.current_save.aspects))
 		delete this.current_save;
 	}
 	closeAmendEditMenu() {
 		if (this.amend_edit_menu) {
-			this.amend_edit_menu.remove();
+			this.amend_edit_menu.node.remove();
 			delete this.amend_edit_menu;
 		}
 	}
 	amendEdit(form, callback) {
+		let scope = this;
 		let input_elements = {};
 		let dialog = document.createElement('div');
 		dialog.id = 'amend_edit_menu';
-		this.amend_edit_menu = dialog;
+		this.amend_edit_menu = {
+			node: dialog,
+			form: {}
+		};
 
 		let close_button = document.createElement('div');
 		close_button.append(Blockbench.getIconNode('clear'));
@@ -94,12 +97,21 @@ class UndoSystem {
 		function updateValue() {
 			let form_values = {};
 			for (let key in form) {
-				if (input_elements[key]) {
-					form_values[key] = input_elements[key].get();
+				let input = scope.amend_edit_menu.form[key];
+				if (input) {
+					if (input.type == 'number') {
+						form_values[key] = input.slider.get();
+					} else if (input.type == 'checkbox') {
+						form_values[key] = !!input.node.checked;
+					}
 				}
 			}
+			if (Undo.history.length != Undo.index) {
+				console.error('Detected error in amending edit. Skipping this edit.');
+				return;
+			}
 			Undo.undo(null, true);
-			callback(form_values);
+			callback(form_values, scope.amend_edit_menu.form);
 		}
 
 		for (let key in form) {
@@ -108,22 +120,41 @@ class UndoSystem {
 			let line = document.createElement('div');
 			line.className = 'amend_edit_line';
 			dialog.append(line);
+			this.amend_edit_menu.form[key] = {
+				type: form_line.type || 'number',
+				label: form_line.label
+			}
 
-			let slider = new NumSlider({
-				id: 'amend_edit_slider',
-				name: tl(form_line.label),
-				private: true,
-				onChange: updateValue,
-				settings: {
-					default: form_line.value || 0,
-					min: form_line.min,
-					max: form_line.max,
-					step: form_line.step||1,
-				},
-			});
-			line.append(slider.node);
-			input_elements[key] = slider;
-			slider.update();
+			if (this.amend_edit_menu.form[key].type == 'number') {
+				let getInterval = form_line.getInterval;
+				if (form_line.interval_type == 'position') getInterval = getSpatialInterval;
+				if (form_line.interval_type == 'rotation') getInterval = getRotationInterval;
+				let slider = new NumSlider({
+					id: 'amend_edit_slider',
+					name: tl(form_line.label),
+					private: true,
+					onChange: updateValue,
+					getInterval,
+					settings: {
+						default: form_line.value || 0,
+						min: form_line.min,
+						max: form_line.max,
+						step: form_line.step||1,
+					},
+				});
+				line.append(slider.node);
+				input_elements[key] = slider;
+				this.amend_edit_menu.form[key].slider = slider
+				slider.update();
+
+			} else if (this.amend_edit_menu.form[key].type == 'checkbox') {
+				
+				let toggle = Interface.createElement('input', {type: 'checkbox', checked: form_line.value ? true : undefined});
+				toggle.addEventListener('input', updateValue);
+				line.append(toggle);
+				input_elements[key] = toggle;
+				this.amend_edit_menu.form[key].node = toggle;
+			}
 
 			let label = document.createElement('label');
 			label.innerText = tl(form_line.label);
@@ -146,9 +177,7 @@ class UndoSystem {
 		})
 	}
 	undo(remote, amended) {
-		if (!amended && this.amend_edit_menu) {
-			this.closeAmendEditMenu();
-		}
+		this.startChange(amended);
 		if (this.history.length <= 0 || this.index < 1) return;
 
 		Project.saved = false;
@@ -162,9 +191,7 @@ class UndoSystem {
 		Blockbench.dispatchEvent('undo', {entry})
 	}
 	redo(remote, amended) {
-		if (!amended && this.amend_edit_menu) {
-			this.closeAmendEditMenu();
-		}
+		this.startChange(amended);
 		if (this.history.length <= 0) return;
 		if (this.index >= this.history.length) {
 			return;
@@ -274,8 +301,8 @@ class UndoSystem {
 			elements.forEach(function(obj) {
 				if (save.selection.includes(obj.uuid)) {
 					obj.selectLow()
-					if (save.selected_vertices[obj.uuid]) {
-						Project.selected_vertices[obj.uuid] = save.selected_vertices[obj.uuid];
+					if (save.mesh_selection[obj.uuid]) {
+						Project.mesh_selection[obj.uuid] = save.mesh_selection[obj.uuid];
 					}
 				}
 			})
@@ -296,6 +323,34 @@ class UndoSystem {
 			}
 		}
 
+		if (save.texture_groups) {
+			for (let uuid in save.texture_groups) {
+				let group;
+				let data = save.texture_groups[uuid];
+				if (reference.texture_groups[uuid]) {
+					group = TextureGroup.all.find(tg => tg.uuid == uuid);
+					if (group) {
+						group.extend(data);
+					}
+				} else {
+					group = new TextureGroup(data, uuid).add(false);
+				}
+				//order
+				let index = TextureGroup.all.indexOf(group);
+				if (index != -1 && index != data.index && typeof data.index == 'number') {
+					TextureGroup.all.remove(group);
+					TextureGroup.all.splice(data.index, 0, group);
+				}
+			}
+			for (let uuid in reference.texture_groups) {
+				if (!save.texture_groups[uuid]) {
+					let group = TextureGroup.all.find(tg => tg.uuid == uuid);
+					if (group) {
+						TextureGroup.all.remove(group);
+					}
+				}
+			}
+		}
 		if (save.textures) {
 			Painter.current = {}
 			for (var uuid in save.textures) {
@@ -303,11 +358,20 @@ class UndoSystem {
 					var tex = Texture.all.find(tex => tex.uuid == uuid)
 					if (tex) {
 						var require_reload = tex.mode !== save.textures[uuid].mode;
-						tex.extend(save.textures[uuid]).updateSource()
+						tex.extend(save.textures[uuid]);
+						if (tex.source_overwritten && save.textures[uuid].image_data) {
+							// If the source file was overwritten by more recent changes, make sure to display the original data
+							tex.convertToInternal(save.textures[uuid].image_data);
+						}
+						if (tex.layers_enabled) {
+							tex.updateLayerChanges(true);
+						}
+						tex.updateSource();
 						tex.keep_size = true;
 						if (require_reload || reference.textures[uuid] === true) {
 							tex.load()
 						}
+						tex.syncToOtherProject();
 					}
 				} else {
 					var tex = new Texture(save.textures[uuid], uuid)
@@ -322,10 +386,39 @@ class UndoSystem {
 					}
 					if (Texture.selected == tex) {
 						Texture.selected = undefined;
+						Blockbench.dispatchEvent('update_texture_selection');
 					}
 				}
 			}
-			Canvas.updateAllFaces()
+			Canvas.updateAllFaces();
+			updateInterfacePanels();
+			UVEditor.vue.updateTexture();
+		}
+
+		if (save.layers) {
+			let affected_textures = [];
+			for (let uuid in save.layers) {
+				if (reference.layers[uuid]) {
+					let tex = Texture.all.find(tex => tex.uuid == save.layers[uuid].texture);
+					let layer = tex && tex.layers.find(l => l.uuid == uuid);
+					if (layer) {
+						layer.extend(save.layers[uuid]);
+						affected_textures.safePush(tex);
+					}
+				}
+			}
+			affected_textures.forEach(tex => {
+				/*if (tex.source_overwritten && save.layers[uuid].image_data) {
+					// If the source file was overwritten by more recent changes, make sure to display the original data
+					tex.convertToInternal(save.layers[uuid].image_data);
+				}*/
+				tex.updateLayerChanges(true);
+				tex.updateSource();
+				tex.keep_size = true;
+				tex.syncToOtherProject();
+			})
+			Canvas.updateAllFaces();
+			UVEditor.vue.updateTexture();
 		}
 
 		if (save.texture_order) {
@@ -369,6 +462,35 @@ class UndoSystem {
 						animation.remove(false)
 					}
 				}
+			}
+		}
+		if (save.animation_controllers) {
+			for (var uuid in save.animation_controllers) {
+
+				var controller = (reference.animation_controllers && reference.animation_controllers[uuid]) ? this.getItemByUUID(AnimationController.all, uuid) : null;
+				if (!controller) {
+					controller = new AnimationController();
+					controller.uuid = uuid;
+				}
+				controller.extend(save.animation_controllers[uuid]).add(false);
+				if (save.animation_controllers[uuid].selected) {
+					controller.select();
+				}
+			}
+			for (var uuid in reference.animation_controllers) {
+				if (!save.animation_controllers[uuid]) {
+					var controller = this.getItemByUUID(AnimationController.all, uuid);
+					if (controller) {
+						controller.remove(false);
+					}
+				}
+			}
+		}
+		if (save.animation_controller_state) {
+			let controller = AnimationController.all.find(controller => save.animation_controller_state.controller == controller.uuid);
+			let state = controller && controller.states.find(state => state.uuid == save.animation_controller_state.uuid);
+			if (state) {
+				state.extend(save.animation_controller_state);
 			}
 		}
 
@@ -420,15 +542,17 @@ class UndoSystem {
 		}
 
 		if (save.display_slots) {
-			for (var slot in save.display_slots) {
-				var data = save.display_slots[slot]
+			for (let slot in save.display_slots) {
+				let data = save.display_slots[slot]
 
 				if (!Project.display_settings[slot] && data) {
 					Project.display_settings[slot] = new DisplaySlot()
 				} else if (data === null && Project.display_settings[slot]) {
 					Project.display_settings[slot].default()
 				}
-				Project.display_settings[slot].extend(data).update()
+				if (Project.display_settings[slot]) {
+					Project.display_settings[slot].extend(data).update();
+				}
 			}
 		}
 
@@ -443,6 +567,9 @@ class UndoSystem {
 		if ((save.outliner || save.group) && Format.bone_rig) {
 			Canvas.updateAllBones();
 		}
+		if (save.outliner && Format.per_group_texture) {
+			Canvas.updateAllFaces();
+		}
 		if (Modes.animate) {
 			Animator.preview();
 		}
@@ -456,11 +583,11 @@ UndoSystem.save = class {
 
 		if (aspects.selection) {
 			this.selection = [];
-			this.selected_vertices = {};
+			this.mesh_selection = {};
 			selected.forEach(obj => {
 				this.selection.push(obj.uuid);
-				if (obj instanceof Mesh) {
-					this.selected_vertices[obj.uuid] = Mesh.selected[0].getSelectedVertices().slice();
+				if (obj instanceof Mesh && Project.mesh_selection[obj.uuid]) {
+					this.mesh_selection[obj.uuid] = JSON.parse(JSON.stringify(Project.mesh_selection[obj.uuid]));
 				}
 			})
 			if (Group.selected) {
@@ -487,8 +614,24 @@ UndoSystem.save = class {
 		if (aspects.textures) {
 			this.textures = {}
 			aspects.textures.forEach(t => {
-				var tex = t.getUndoCopy(aspects.bitmap)
+				let tex = t.getUndoCopy(aspects.bitmap)
 				this.textures[t.uuid] = tex
+			})
+		}
+
+		if (aspects.texture_groups) {
+			this.texture_groups = {};
+			aspects.texture_groups.forEach(tg => {
+				let copy = tg.getUndoCopy()
+				this.texture_groups[tg.uuid] = copy;
+			})
+		}
+
+		if (aspects.layers) {
+			this.layers = {};
+			aspects.layers.forEach(layer => {
+				let copy = layer.getUndoCopy(aspects.bitmap)
+				this.layers[layer.uuid] = copy;
 			})
 		}
 
@@ -529,6 +672,16 @@ UndoSystem.save = class {
 				scope.keyframes[kf.uuid] = kf.getUndoCopy()
 			})
 		}
+		if (aspects.animation_controllers) {
+			this.animation_controllers = {}
+			aspects.animation_controllers.forEach(a => {
+				scope.animation_controllers[a.uuid] = a.getUndoCopy();
+			})
+		}
+		if (aspects.animation_controller_state) {
+			this.animation_controller_state = aspects.animation_controller_state.getUndoCopy();
+			this.animation_controller_state.controller = aspects.animation_controller_state.controller?.uuid;
+		}
 
 		if (aspects.display_slots) {
 			scope.display_slots = {}
@@ -544,11 +697,29 @@ UndoSystem.save = class {
 		if (aspects.exploded_view !== undefined) {
 			this.exploded_view = !!aspects.exploded_view;
 		}
+
+		Blockbench.dispatchEvent('create_undo_save', {save: this, aspects})
 	}
 	addTexture(texture) {
 		if (!this.textures) return;
 		if (this.aspects.textures.safePush(texture)) {
 			this.textures[texture.uuid] = texture.getUndoCopy(this.aspects.bitmap)
+		}
+	}
+	addTextureOrLayer(texture) {
+		if (texture.layers_enabled && texture.layers[0]) {
+			let layer = texture.getActiveLayer();
+			if (!this.aspects.layers) this.aspects.layers = [];
+			if (this.aspects.layers.safePush(layer)) {
+				if (!this.layers) this.layers = {};
+				this.layers[layer.uuid] = layer.getUndoCopy(this.aspects.bitmap);
+			}
+		} else {
+			if (!this.aspects.textures) this.aspects.textures = [];
+			if (this.aspects.textures.safePush(texture)) {
+				if (!this.textures) this.textures = {};
+				this.textures[texture.uuid] = texture.getUndoCopy(this.aspects.bitmap)
+			}
 		}
 	}
 	addElements(elements, aspects = {}) {
@@ -567,7 +738,6 @@ BARS.defineActions(function() {
 		icon: 'undo',
 		category: 'edit',
 		condition: () => Project,
-		work_in_dialog: true,
 		keybind: new Keybind({key: 'z', ctrl: true}),
 		click(e) {
 			Project.undo.undo(e);
@@ -577,7 +747,6 @@ BARS.defineActions(function() {
 		icon: 'redo',
 		category: 'edit',
 		condition: () => Project,
-		work_in_dialog: true,
 		keybind: new Keybind({key: 'y', ctrl: true}),
 		click(e) {
 			Project.undo.redo(e);
@@ -588,7 +757,6 @@ BARS.defineActions(function() {
 		category: 'edit',
 		condition: () => Project,
 		click() {
-
 			let steps = [];
 			Undo.history.forEachReverse((entry, index) => {
 				index++;

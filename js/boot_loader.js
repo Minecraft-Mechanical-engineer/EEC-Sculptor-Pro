@@ -1,3 +1,9 @@
+Interface.page_wrapper = document.getElementById('page_wrapper');
+Interface.work_screen = document.getElementById('work_screen');
+Interface.center_screen = document.getElementById('center');
+Interface.right_bar = document.getElementById('right_bar');
+Interface.left_bar = document.getElementById('left_bar');
+Interface.preview = document.getElementById('preview');
 
 CustomTheme.setup()
 
@@ -41,17 +47,19 @@ BARS.setupVue()
 MenuBar.setup()
 translateUI()
 
+Settings.setupProfiles();
+
 console.log(`Three.js r${THREE.REVISION}`)
 console.log('%cBlockbench ' + appVersion + (isApp
-	? (' Desktop (' + Blockbench.operating_system +')')
+	? (' Desktop (' + Blockbench.operating_system + ', ' + process.arch +')')
 	: (' Web ('+capitalizeFirstLetter(Blockbench.browser) + (Blockbench.isPWA ? ', PWA)' : ')'))),
 	'border: 2px solid #3e90ff; padding: 4px 8px; font-size: 1.2em;'
 )
-var startups = parseInt(localStorage.getItem('startups')||0);
-localStorage.setItem('startups', startups+1);
+Blockbench.startup_count = parseInt(localStorage.getItem('startups')||0) + 1;
+localStorage.setItem('startups', Blockbench.startup_count);
 
 document.getElementById('blackout').addEventListener('click', event => {
-	if (typeof open_interface.cancel == 'function') {
+	if (typeof open_interface.cancel == 'function' && open_interface.cancel_on_click_outside !== false) {
 		open_interface.cancel(event);
 	} else if (typeof open_interface == 'string' && open_dialog) {
 		$('dialog#'+open_dialog).find('.cancel_btn:not([disabled])').trigger('click');
@@ -79,6 +87,29 @@ if (!Blockbench.isWeb || !Blockbench.isPWA) {
 	$.ajaxSetup({ cache: false });
 }
 
+if (Blockbench.startup_count == 1) {
+	try {
+		jQuery.ajax({
+			url: 'https://blckbn.ch/api/event/new_installation',
+			type: 'POST',
+			data: {}
+		})
+	} catch (err) {
+		console.error(err);
+	}
+}
+if (Blockbench.startup_count == 3) {
+	try {
+		jQuery.ajax({
+			url: 'https://blckbn.ch/api/event/recurring_user',
+			type: 'POST',
+			data: {}
+		})
+	} catch (err) {
+		console.error(err);
+	}
+}
+
 Blockbench.on('before_closing', (event) => {
 	if (!Blockbench.hasFlag('no_localstorage_saving')) {
 		Settings.saveLocalStorages()
@@ -101,6 +132,8 @@ onVueSetup.funcs.forEach((func) => {
 	}
 })
 
+AutoBackup.initialize();
+
 if (isApp) {
 	initializeDesktopApp();
 } else {
@@ -114,8 +147,11 @@ localStorage.setItem('last_version', Blockbench.version);
 	let proceeded = false;
 	function proceed() {
 		if (proceeded) return;
+
+		Settings.saveLocalStorages();
 		if (isApp) {
 			loadOpenWithBlockbenchFile();
+			ipcRenderer.send('app-loaded');
 		} else {
 			loadInfoFromURL();
 		}

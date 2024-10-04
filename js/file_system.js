@@ -11,9 +11,9 @@ Object.assign(Blockbench, {
 			//resource_id
 
 		if (isApp) {
-			var properties = []
+			let properties = [];
 			if (options.multiple) {
-				properties.push('multiSelections')
+				properties.push('openFile', 'multiSelections')
 			}
 			if (options.extensions[0] === 'image/*') {
 				options.type = 'Images'
@@ -32,7 +32,7 @@ Object.assign(Blockbench, {
 						name: options.type ? options.type : options.extensions[0],
 						extensions: options.extensions
 					}],
-					properties: (properties.length && Blockbench.platform !== 'darwin')?properties:undefined,
+					properties: properties.length ? properties : undefined,
 					defaultPath: settings.streamer_mode.value
 						? app.getPath('desktop')
 						: options.startpath
@@ -45,13 +45,39 @@ Object.assign(Blockbench, {
 			}
 			Blockbench.read(fileNames, options, cb)
 		} else {
-			$('<input '+
-				'type="file'+
-				'" accept=".'+(options.extensions ? options.extensions.join(',.'): '')+
-				'" multiple="'+(options.multiple === true)+
-			'">').change(function(e) {
-				Blockbench.read(this.files, options, cb)
-			}).click()
+			let isIOS =  ['iPad Simulator', 'iPhone Simulator', 'iPod Simulator', 'iPad', 'iPhone', 'iPod'].includes(navigator.platform) ||
+				(navigator.userAgent.includes("Mac") && "ontouchend" in document);
+			
+			if (isIOS && options.extensions && options.extensions.length > 1) {
+				let ext_options = {};
+				options.extensions.forEach(extension => {
+					ext_options[extension] = extension;
+				})
+				new Dialog({
+					id: 'import_type',
+					title: 'File Type',
+					form: {
+						extension: {label: 'File Type', type: 'select', options: ext_options}
+					},
+					onConfirm(formResult) {
+						$('<input '+
+							'type="file'+
+							'" accept=".'+formResult.extension+
+							'" multiple="'+(options.multiple === true)+
+						'">').on('change', function(e) {
+							Blockbench.read(this.files, options, cb)
+						}).trigger('click');
+					}
+				}).show();
+			} else {
+				$('<input '+
+					'type="file'+
+					'" accept=".'+(options.extensions ? options.extensions.join(',.'): '')+
+					'" multiple="'+(options.multiple === true)+
+				'">').on('change', function(e) {
+					Blockbench.read(this.files, options, cb)
+				}).trigger('click');
+			}
 		}
 	},
 	pickDirectory(options) {
@@ -137,7 +163,8 @@ Object.assign(Blockbench, {
 						} else {
 							results[this_i] = {
 								name: pathToName(file, true),
-								path: file
+								path: file,
+								content: file
 							}
 							result_count++;
 							if (result_count === files.length) {
@@ -153,7 +180,9 @@ Object.assign(Blockbench, {
 							if (!errant && options.errorbox !== false) {
 								Blockbench.showMessageBox({
 									translateKey: 'file_not_found',
-									icon: 'error_outline'
+									message: tl('message.file_not_found.message') + '\n\n```' + file.replace(/[`"<>]/g, '') + '```',
+									icon: 'error_outline',
+									width: 520
 								})
 							}
 							errant = true;
@@ -234,6 +263,9 @@ Object.assign(Blockbench, {
 			}
 		}
 	},
+	readFile(...args) {
+		return Blockbench.read(...args);
+	},
 	export(options, cb) {
 		if (!options) return;
 		/*	
@@ -249,7 +281,8 @@ Object.assign(Blockbench, {
 		*/
 		if (Blockbench.isWeb) {
 			var file_name = options.name || 'file';
-			if (options.extensions && file_name.substr(-options.extensions[0].length) != options.extensions[0]) {
+			var extension = pathToExtension(file_name);
+			if (options.extensions instanceof Array && !options.extensions.includes(extension) && options.extensions[0]) {
 				file_name += '.' + options.extensions[0];
 			}
 			if (options.custom_writer) {
@@ -300,7 +333,7 @@ Object.assign(Blockbench, {
 				StateMemory.save('dialog_paths')
 			}
 			var extension = pathToExtension(file_path);
-			if (!extension && options.extensions && options.extensions[0]) {
+			if (options.extensions instanceof Array && !options.extensions.includes(extension) && options.extensions[0]) {
 				file_path += '.'+options.extensions[0]
 			}
 			Blockbench.writeFile(file_path, options, cb)
@@ -345,10 +378,81 @@ Object.assign(Blockbench, {
 
 		} else {
 			//text or binary
-			fs.writeFileSync(file_path, options.content)
+			let content = options.content;
+			if (content instanceof ArrayBuffer) {
+				content = Buffer.from(content);
+			}
+			fs.writeFileSync(file_path, content)
 			if (cb) {
 				cb(file_path)
 			}
+		}
+	},
+	//Find
+	/**
+	 * @callback checkFileCallback
+	 * @param {{name: string, path: string, content: (string|object)}} x - test
+	 */
+	/**
+	 * Find a file in a directory based on content within the file, optionally optimized via file name match
+	 * @param {string[]} base_directories List of base directory paths to search in
+	 * @param {{recursive: boolean, filter_regex: RegExp, priority_regex: RegExp, json: boolean}} options 
+	 * @param {checkFileCallback} check_file 
+	 */
+	findFileFromContent(base_directories, options, check_file) {
+		let deprioritized_files = [];
+
+		function checkFile(path) {
+			try {
+				let content;
+				if (options.read_file !== false) content = fs.readFileSync(path, 'utf-8');
+				
+				return check_file(path, options.json ? autoParseJSON(content, false) : content);
+
+			} catch (err) {
+				console.error(err);
+				return false;
+			}
+		}
+
+		let searchFolder = (path) => {
+			let files;
+			try {
+				files = fs.readdirSync(path, {withFileTypes: true});
+			} catch (err) {
+				files = [];
+			}
+			for (let dirent of files) {
+				if (dirent.isDirectory()) continue;
+
+				if (!options.filter_regex || options.filter_regex.exec(dirent.name)) {
+					let new_path = path + osfs + dirent.name;
+					if (!options.priority_regex || options.priority_regex.exec(dirent.name)) {
+						// priority checking
+						let result = checkFile(new_path);
+						if (result) return result;
+					} else {
+						deprioritized_files.push(new_path);
+					}
+				}
+			}
+			if (options.recursive !== false) {
+				for (let dirent of files) {
+					if (!dirent.isDirectory()) continue;
+
+					let result = searchFolder(path + osfs + dirent.name);
+					if (result) return result;
+				}
+			}
+		}
+		for (let directory of base_directories) {
+			let result = searchFolder(directory);
+			if (result) return result;
+		}
+
+		for (let path of deprioritized_files) {
+			let result = checkFile(path);
+			if (result) return result;
 		}
 	},
 	//File Drag
@@ -365,7 +469,12 @@ Object.assign(Blockbench, {
 		if (options.errorbox) entry.errorbox = true;
 		if (options.element) entry.element = options.element;
 
+		entry.delete = () => {
+			Blockbench.removeDragHandler(id);
+		}
+
 		this.drag_handlers[id] = entry
+		return entry;
 	},
 	removeDragHandler(id) {
 		delete this.drag_handlers[id]
@@ -378,22 +487,30 @@ document.ondragover = function(event) {
 }
 document.body.ondrop = function(event) {
 	event.preventDefault()
+	let text = event.dataTransfer.getData('text/plain');
+
+	if (text && text.startsWith('https://blckbn.ch/')) {
+		let code = text.replace(/\/$/, '').split('/').last();
+		$.getJSON(`https://blckbn.ch/api/models/${code}`, (model) => {
+			Codecs.project.load(model, {path: ''});
+		}).fail(error => {
+			Blockbench.showQuickMessage('message.invalid_link')
+		})
+	}
+
 	forDragHandlers(event, function(handler, el) {
 		var fileNames = event.dataTransfer.files
 
-		var input = this;
-		var results = [];
-		var result_count = 0;
-		var i = 0;
-		var errant;
-		var paths = []
+		var paths = [];
 		if (isApp) {
 			for (var file of fileNames) {
-				paths.push(file.path)
+				if (file.path) paths.push(file.path)
 			}
 		} else {
 			paths = fileNames
 		}
+		if (!paths.length) return;
+
 		Blockbench.read(paths, handler, (content) => {
 			handler.cb(content, event)
 		})
