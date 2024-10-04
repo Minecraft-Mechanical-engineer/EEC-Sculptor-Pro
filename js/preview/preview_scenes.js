@@ -104,10 +104,7 @@ class PreviewScene {
 
 		Canvas.global_light_color.copy(this.light_color);
 		Canvas.global_light_side = this.light_side;
-		scene.background = this.cubemap;
-		scene.fog = this.fog;
-		if (this.fov && !(Modes.display && display_slot.startsWith('firstperson'))) {
-			Preview.selected.setFOV(this.fov);
+ted.setFOV(this.fov);
 		}
 		// Update independent models
 		PreviewModel.getActiveModels().forEach(model => {

@@ -854,6 +854,10 @@ const Canvas = {
 		}
 		Blockbench.dispatchEvent('update_view', options);
 	},
+	updateViewMode() {
+		this.updateAllFaces();
+		this.updateShading();
+	},
 	//Main updaters
 	clear() {
 		var objects = []
@@ -949,7 +953,7 @@ const Canvas = {
 		let side = Canvas.getRenderSide();
 		ModelProject.all.forEach(project => {
 			project.textures.forEach((tex) => {
-				var mat = project.materials[tex.uuid];
+				var mat = tex.getMaterial();
 				if (!mat) return;
 				mat.side = Canvas.getRenderSide(tex);
 			})
@@ -1216,7 +1220,7 @@ const Canvas = {
 		if (layers instanceof Array == false) layers = Texture.all;
 		layers.forEachReverse(texture => {
 			if (texture.visible && i < 3) {
-				uniforms[`t${i}`].value = texture.getMaterial().map;
+				uniforms[`t${i}`].value = texture.getOwnMaterial().map;
 				i++;
 			}
 		})
@@ -1269,7 +1273,7 @@ const Canvas = {
 				} else {
 					var tex = cube.faces[face].getTexture()
 					if (tex && tex.uuid) {
-						materials.push(Project.materials[tex.uuid])
+						materials.push(tex.getMaterial())
 					} else {
 						materials.push(Canvas.emptyMaterials[cube.color])
 					}
