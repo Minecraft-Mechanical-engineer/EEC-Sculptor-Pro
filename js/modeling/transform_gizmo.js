@@ -1144,12 +1144,14 @@
 								for (let key in obj.vertices) {
 									obj.oldVertices[key] = obj.vertices[key].slice();
 								}
-							} else if (obj.resizable) {
-								obj.oldScale = obj.size(axisnr);
+							} else if (obj.to) {
+								obj.old_size = obj.size(axisnr)
 								obj.oldStretch = obj.stretch.slice();
-								obj.oldUVOffset = obj.uv_offset.slice();
+								if (obj.uv_offset) obj.oldUVOffset = obj.uv_offset.slice();
 								obj.oldCenter = obj.from.map((from, i) => (from + obj.to[i]) / 2);
-							} 
+							} else if (obj.size) {
+								obj.old_size = obj.size.slice();
+							}
 						})
 					}
 					_has_groups = Format.bone_rig && Group.selected && Group.selected.matchesSelection() && Toolbox.selected.transformerMode == 'translate';
@@ -1679,7 +1681,7 @@
 						if (Toolbox.selected.id === 'resize_tool' || Toolbox.selected.id === 'stretch_tool') {
 							//Scale and stretch
 							selected.forEach(function(obj) {
-								delete obj.oldScale;
+								delete obj.old_size;
 								delete obj.oldStretch;
 								delete obj.oldCenter;
 								delete obj.oldUVOffset;

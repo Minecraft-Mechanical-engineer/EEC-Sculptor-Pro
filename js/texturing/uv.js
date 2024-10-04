@@ -1322,6 +1322,9 @@ const UVEditor = {
 				Property.resetUniqueValues(MeshFace, new_face);
 				new_face.vertices = tag.getSortedVertices();
 				new_face.direction = key;
+			} else if (element instanceof Billboard) {
+				new_face = new BillboardFace(key, tag);
+				Property.resetUniqueValues(BillboardFace, new_face);
 			} else {
 				new_face = new CubeFace(key, tag);
 				Property.resetUniqueValues(CubeFace, new_face);
@@ -1376,7 +1379,7 @@ const UVEditor = {
 			let tag = UVEditor.clipboard[0];
 			elements.forEach(el => {
 				if (el instanceof Cube && el.box_uv) return;
-				if ((el instanceof Cube && tag instanceof CubeFace) || (el instanceof Mesh && tag instanceof MeshFace)) {
+				if ((el instanceof Cube && tag instanceof CubeFace) || (el instanceof Mesh && tag instanceof MeshFace) || (el instanceof Billboard && tag instanceof BillboardFace)) {
 					let selected_faces = UVEditor.getSelectedFaces(el);
 					for (let key in el.faces) {
 						if (multiple || selected_faces.includes(key)) {
@@ -1391,7 +1394,7 @@ const UVEditor = {
 			UVEditor.clipboard.forEach(tag => {
 				elements.forEach(el => {
 					if (el instanceof Cube && el.box_uv) return;
-					if ((el instanceof Cube && tag instanceof CubeFace) || (el instanceof Mesh && tag instanceof MeshFace)) {
+					if ((el instanceof Cube && tag instanceof CubeFace) || (el instanceof Mesh && tag instanceof MeshFace) || (el instanceof Billboard && tag instanceof BillboardFace)) {
 						let key = tag.direction;
 						if (el.faces[key]) {
 							mergeFace(el, key, tag);
@@ -1486,22 +1489,22 @@ const UVEditor = {
 			let on = 'far.fa-dot-circle';
 			return [
 				{icon: (!reference_face.rotation ? on : off), name: '0°', click() {
-					Undo.initEdit({elements: Cube.selected, uv_only: true})
+					Undo.initEdit({elements: Cube.selected.concat(Billboard.selected), uv_only: true})
 					UVEditor.setRotation(0)
 					Undo.finishEdit('Rotate UV')
 				}},
 				{icon: (reference_face.rotation === 90 ? on : off), name: '90°', click() {
-					Undo.initEdit({elements: Cube.selected, uv_only: true})
+					Undo.initEdit({elements: Cube.selected.concat(Billboard.selected), uv_only: true})
 					UVEditor.setRotation(90)
 					Undo.finishEdit('Rotate UV')
 				}},
 				{icon: (reference_face.rotation === 180 ? on : off), name: '180°', click() {
-					Undo.initEdit({elements: Cube.selected, uv_only: true})
+					Undo.initEdit({elements: Cube.selected.concat(Billboard.selected), uv_only: true})
 					UVEditor.setRotation(180)
 					Undo.finishEdit('Rotate UV')
 				}},
 				{icon: (reference_face.rotation === 270 ? on : off), name: '270°', click() {
-					Undo.initEdit({elements: Cube.selected, uv_only: true})
+					Undo.initEdit({elements: Cube.selected.concat(Billboard.selected), uv_only: true})
 					UVEditor.setRotation(270)
 					Undo.finishEdit('Rotate UV')
 				}}

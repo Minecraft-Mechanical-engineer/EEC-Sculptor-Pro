@@ -242,6 +242,7 @@ const MenuBar = {
 			'add_cube',
 			'add_mesh',
 			'add_group',
+			'add_billboard',
 			'add_locator',
 			'add_null_object',
 			'add_texture_mesh',

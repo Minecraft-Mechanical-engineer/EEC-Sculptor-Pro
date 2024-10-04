@@ -629,16 +629,12 @@ class NodePreviewController extends EventSystem {
 			mesh.rotation.x = Math.degToRad(element.rotation[0]);
 			mesh.rotation.y = Math.degToRad(element.rotation[1]);
 			mesh.rotation.z = Math.degToRad(element.rotation[2]);
-		} else {
-			mesh.rotation.set(0, 0, 0);
 		}
 
 		if (element.scalable) {
 			mesh.scale.x = element.scale[0] || 1e-7;
 			mesh.scale.y = element.scale[1] || 1e-7;
 			mesh.scale.z = element.scale[2] || 1e-7;
-		} else {
-			mesh.scale.set(1, 1, 1);
 		}
 
 		if (Format.bone_rig) {
@@ -1808,6 +1804,7 @@ Interface.definePanels(function() {
 			'add_mesh',
 			'add_cube',
 			'add_texture_mesh',
+			'add_billboard',
 			'add_group',
 			new MenuSeparator('copypaste'),
 			'paste',
