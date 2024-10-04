@@ -151,7 +151,7 @@ class OutlinerNode {
 		if (!group) {
 			group = 'root'
 		} else if (group !== 'root') {
-			if (group.type !== 'group') {
+			if (!group.children) {
 				if (group.parent === 'root') {
 					index = Outliner.root.indexOf(group)+1
 					group = 'root'
@@ -164,11 +164,12 @@ class OutlinerNode {
 		this.removeFromParent()
 
 		//Get Array
+		let arr;
 		if (group === 'root') {
-			var arr = Outliner.root
+			arr = Outliner.root
 			this.parent = 'root'
 		} else {
-			var arr = group.children
+			arr = group.children
 			this.parent = group
 		}
 
@@ -261,13 +262,17 @@ class OutlinerNode {
 			scope.name = scope.old_name;
 			if (scope.type === 'group') {
 				Undo.initEdit({outliner: true})
+			} else if (scope.type === 'armature_bone') {
+				Undo.initEdit({elements: [scope], outliner: true})
+			} else {
+				Undo.initEdit({elements: [scope]})
+			}
+			if (this.constructor.animator) {
 				Animation.all.forEach(animation => {
 					if (animation.animators[scope.uuid] && animation.animators[scope.uuid].keyframes.length) {
 						animation.saved = false;
 					}
 				})
-			} else {
-				Undo.initEdit({elements: [scope]})
 			}
 			scope.name = name
 			scope.sanitizeName();
@@ -624,16 +629,12 @@ class NodePreviewController extends EventSystem {
 			mesh.rotation.x = Math.degToRad(element.rotation[0]);
 			mesh.rotation.y = Math.degToRad(element.rotation[1]);
 			mesh.rotation.z = Math.degToRad(element.rotation[2]);
-		} else {
-			mesh.rotation.set(0, 0, 0);
 		}
 
 		if (element.scalable) {
 			mesh.scale.x = element.scale[0] || 1e-7;
 			mesh.scale.y = element.scale[1] || 1e-7;
 			mesh.scale.z = element.scale[2] || 1e-7;
-		} else {
-			mesh.scale.set(1, 1, 1);
 		}
 
 		if (Format.bone_rig) {
@@ -742,66 +743,46 @@ Array.prototype.findRecursive = function(key1, val) {
 	return undefined;
 }
 
-function compileGroups(undo, lut) {
-	var result = []
+function compileGroups() {
+	let result = [];
 	function iterate(array, save_array) {
-		var i = 0;
-		for (var element of array) {
-			if (element.type === 'group') {
-
-				if (lut === undefined || element.export === true) {
-
-					var obj = element.compile(undo)
-
-					if (element.children.length > 0) {
-						iterate(element.children, obj.children)
-					}
-					save_array.push(obj)
+		let i = 0;
+		for (let element of array) {
+			if (element.children instanceof Array) {
+				let copy = element.compile(true)
+				if (element.children.length > 0) {
+					iterate(element.children, copy.children)
 				}
+				save_array.push(copy)
 			} else {
-				if (undo) {
-					save_array.push(element.uuid)
-				} else {
-					if (lut) {
-						var index = lut[elements.indexOf(element)]
-					} else {
-						var index = elements.indexOf(element)
-					}
-					if (index >= 0) {
-						save_array.push(index)
-					}
-				}
+				save_array.push(element.uuid)
 			}
 			i++;
 		}
 	}
-	iterate(Outliner.root, result)
+	iterate(Outliner.root, result);
 	return result;
 }
-function parseGroups(array, import_reference, startIndex) {
+function parseGroups(array, add_to_project) {
 	function iterate(array, save_array, addGroup) {
 		var i = 0;
 		while (i < array.length) {
 			if (typeof array[i] === 'number' || typeof array[i] === 'string') {
 
-				if (typeof array[i] === 'number') {
-					var obj = elements[array[i] + (startIndex ? startIndex : 0) ]
-				} else {
-					var obj = OutlinerNode.uuids[array[i]];
-				}
+				let obj = OutlinerNode.uuids[array[i]];
 				if (obj) {
-					obj.removeFromParent()
-					save_array.push(obj)
-					obj.parent = addGroup
+					obj.removeFromParent();
+					save_array.push(obj);
+					obj.parent = addGroup;
 				}
 			} else {
 				if (OutlinerNode.uuids[array[i].uuid] instanceof Group) {
 					OutlinerNode.uuids[array[i].uuid].removeFromParent();
 					delete OutlinerNode.uuids[array[i].uuid];
 				}
-				var obj = new Group(array[i], array[i].uuid)
+				let obj = new Group(array[i], array[i].uuid)
 				obj.parent = addGroup
-				obj.isOpen = !!array[i].isOpen
+				obj.isOpen = !!array[i].isOpen;
 				if (array[i].uuid) {
 					obj.uuid = array[i].uuid
 				}
@@ -810,33 +791,26 @@ function parseGroups(array, import_reference, startIndex) {
 				if (array[i].children && array[i].children.length > 0) {
 					iterate(array[i].children, obj.children, obj)
 				}
-				if (array[i].content && array[i].content.length > 0) {
-					iterate(array[i].content, obj.children, obj)
-				}
 			}
 			i++;
 		}
 	}
-	if (import_reference instanceof Group && startIndex !== undefined) {
-		iterate(array, import_reference.children, import_reference)
-	} else {
-		if (!import_reference) {
-			Group.all.forEach(group => {
-				group.removeFromParent();
-			})
-			Group.all.empty();
-		}
-		iterate(array, Outliner.root, 'root');
+	if (!add_to_project) {
+		Group.all.forEach(group => {
+			group.removeFromParent();
+		})
+		Group.all.empty();
 	}
+	iterate(array, Outliner.root, 'root');
 }
 
 // Dropping
 function moveOutlinerSelectionTo(item, target, event, order) {
 	let duplicate = event.altKey || Pressing.overrides.alt;
-	if (item.type === 'group' && target && target.parent) {
+	if (item.children instanceof Array && target && target.parent) {
 		var is_parent = false;
 		function iterate(g) {
-			if (!(is_parent = g === item) && g.parent.type === 'group') {
+			if (!(is_parent = g === item) && g.parent.children instanceof Array) {
 				iterate(g.parent)
 			}
 		}
@@ -864,11 +838,10 @@ function moveOutlinerSelectionTo(item, target, event, order) {
 	} else {
 		Undo.initEdit({outliner: true, selection: true})
 		var updatePosRecursive = function(item) {
-			if (item.type == 'group') {
-				if (item.children && item.children.length) {
-					item.children.forEach(updatePosRecursive)
-				}
-			} else {
+			if (item.children && item.children.length) {
+				item.children.forEach(updatePosRecursive)
+			}
+			if (item.preview_controller?.updateTransform) {
 				item.preview_controller.updateTransform(item);
 			}
 		}
@@ -1406,11 +1379,9 @@ Interface.definePanels(function() {
 
 	var VueTreeItem = Vue.extend({
 		template: 
-		'<li class="outliner_node" v-bind:class="{ parent_li: node.children && node.children.length > 0}" v-bind:id="node.uuid">' +
+		`<li class="outliner_node" v-bind:class="{ parent_li: node.children && node.children.length > 0}" v-bind:id="node.uuid" v-bind:style="{'--indentation': indentation}">` +
 			`<div
 				class="outliner_object"
-				v-bind:class="{ cube: node.type === 'cube', group: node.type === 'group', selected: node.selected }"
-				v-bind:style="{'--indentation': indentation}"
 				@contextmenu.prevent.stop="node.showContextMenu($event)"
 				@click="node.select($event, true)"
 				:title="node.title"
@@ -1437,7 +1408,7 @@ Interface.definePanels(function() {
 			//Other Entries
 			'<ul v-if="node.isOpen">' +
 				'<vue-tree-item v-for="item in visible_children" :node="item" :depth="depth + 1" :options="options" :key="item.uuid"></vue-tree-item>' +
-				`<div class="outliner_line_guide" v-if="node.constructor.selected == node" v-bind:style="{left: 'calc(var(--indentation) * ' + indentation + ')'}"></div>` +
+				`<div class="outliner_line_guide" v-if="node.constructor.selected == node"></div>` +
 			'</ul>' +
 		'</li>',
 		props: {
@@ -1833,6 +1804,7 @@ Interface.definePanels(function() {
 			'add_mesh',
 			'add_cube',
 			'add_texture_mesh',
+			'add_billboard',
 			'add_group',
 			new MenuSeparator('copypaste'),
 			'paste',

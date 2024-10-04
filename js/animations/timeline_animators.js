@@ -524,6 +524,99 @@ class BoneAnimator extends GeneralAnimator {
 		new MenuSeparator('presets'),
 		'apply_animation_preset'
 	])
+// -
+
+class ArmatureBoneAnimator extends BoneAnimator {
+	constructor(uuid, animation, name) {
+		super(uuid, animation);
+		this.uuid = uuid;
+		this._name = name;
+
+		this.solver = new FIK.Structure3D(scene);
+		this.chain = new FIK.Chain3D();
+
+		this.position = [];
+	}
+	get name() {
+		var element = this.getElement();
+		if (element) return element.name;
+		return this._name;
+	}
+	set name(name) {
+		this._name = name;
+	}
+	getElement() {
+		this.element = OutlinerNode.uuids[this.uuid];
+		return this.element
+	}
+	select(element_is_selected) {
+		if (!this.getElement()) {
+			unselectAllElements();
+			return this;
+		}
+		if (this.getElement().locked) return;
+
+		if (element_is_selected !== true && this.element) {
+			this.element.select();
+		}
+		GeneralAnimator.prototype.select.call(this);
+		
+		if (this[Toolbox.selected.animation_channel] && (Timeline.selected.length == 0 || Timeline.selected[0].animator != this)) {
+			var nearest;
+			this[Toolbox.selected.animation_channel].forEach(kf => {
+				if (Math.abs(kf.time - Timeline.time) < 0.002) {
+					nearest = kf;
+				}
+			})
+			if (nearest) {
+				nearest.select();
+			}
+		}
+
+		if (this.element && this.element.parent && this.element.parent !== 'root') {
+			this.element.parent.openUp();
+		}
+		return this;
+	}
+	doRender() {
+		this.getElement()
+		return (this.element && this.element && this.element.mesh);
+	}
+	displayPosition(arr, multiplier = 1) {
+	}
+	displayRotation(arr, multiplier = 1) {
+
+		let element = this.element;
+		let mesh = element.getParentArray().filter(m => m instanceof Mesh)[0];
+		if (!mesh) return;
+
+		for (let vkey of vertices) {}
+
+
+
+		var bone = this.element.mesh
+		if (arr) {
+			bone.position.x -= arr[0] * multiplier;
+			bone.position.y += arr[1] * multiplier;
+			bone.position.z += arr[2] * multiplier;
+		}
+		return this;
+	}
+	displayFrame(multiplier = 1) {
+		if (!this.doRender()) return;
+		this.getElement()
+
+		if (!this.muted.position) {
+			this.displayPosition(this.interpolate('position'), multiplier);
+			this.displayRotation(this.interpolate('position'), multiplier);
+		}
+	}
+}
+	ArmatureBoneAnimator.prototype.type = 'null_object';
+	ArmatureBoneAnimator.prototype.channels = {
+		position: {name: tl('timeline.position'), mutable: true, transform: true, max_data_points: 2},
+	}
+	ArmatureBone.animator = ArmatureBoneAnimator;
 
 class NullObjectAnimator extends BoneAnimator {
 	constructor(uuid, animation, name) {
@@ -531,7 +624,6 @@ class NullObjectAnimator extends BoneAnimator {
 		this.uuid = uuid;
 		this._name = name;
 
-		this.solver = new FIK.Structure3D(scene);
 		this.chain = new FIK.Chain3D();
 
 		this.position = [];
@@ -620,17 +712,107 @@ class NullObjectAnimator extends BoneAnimator {
 			bones.push(source);
 		}
 		if (!bones.length) return;
-		bones.reverse();
 		
 		bones.forEach(bone => {
 			if (bone.mesh.fix_rotation) bone.mesh.rotation.copy(bone.mesh.fix_rotation);
 		})
 
-		bones.forEach((bone, i) => {
+		function calculateTargetDistance() {
+			let current_pos = target.getWorldCenter();
+			let d = ik_target.distanceTo(current_pos);
+			return d;
+		}
+
+		let bone_config = {
+			axis_weight: [1, 0.2, 0.2]
+		}
+		let iteration_count = 25;
+		for (let iteration = 0; iteration < iteration_count; iteration++) {
+			let iteration_start_value = (iteration_count / (iteration + 10)) * 1;
+			//console.log(iteration_start_value)
+			let forBone = (bone) => {
+				let bone_weight = 2 * iteration_weight * ((bones.length-i) / (bones.length * 5));
+				let rotation = bone.mesh.rotation;
+				let fix_rotation = bone.mesh.fix_rotation;
+				for (let axis_number = 0; axis_number < 3; axis_number++) {
+					let axis_letter = getAxisLetter(axis_number);
+					let sample_value = iteration_start_value * bone_config.axis_weight[axis_number] * bone_weight;
+					let sample_value2 = sample_value * -0.4;
+
+					rotation[axis_letter] += sample_value;
+					bone.mesh.updateMatrixWorld();
+					let distance = calculateTargetDistance();
+					rotation[axis_letter] -= sample_value;
+					if (!distance) continue;
+
+					rotation[axis_letter] += sample_value2;
+					bone.mesh.updateMatrixWorld();
+					let distance2 = calculateTargetDistance();
+					rotation[axis_letter] -= sample_value2;
+
+					//let sign = distance - distance2;
+					let sign = (distance2 - distance);
+					//sign = (sign < 0 ? (distance) : (distance2)) * sign
+
+					//let progress = Math.clamp(Math.getLerp(last_distance, 0, distance), -1, 1);
+					//console.log(progress, last_distance, distance);
+					//if (!progress) continue;
+					//let inverse_progress = Math.clamp(1/progress, -10, 10) * 0.01 * sign
+					sample_value *= sign * (window.IKF??0.04);
+
+
+					rotation[axis_letter] = fix_rotation[axis_letter] + Math.clamp(rotation[axis_letter] - fix_rotation[axis_letter] + sample_value, -0.02, Math.PI);
+					//console.log(sample_value)
+
+					bone.mesh.updateMatrixWorld();
+				}
+				i++;
+			}
+			let i = 0, iteration_weight = 1;
+			bones.forEach(forBone);
+			i = 0, iteration_weight = 0.2;
+			bones.forEachReverse(forBone);
+		}
+		console.log('-------' + calculateTargetDistance())
+
+
+		/**
+		
+		Chain of bones
+		target
+		bone:
+			axis weight
+			min, max euler angles
+		fixed number of iterations
+			Cycle through bones, from end to root
+				Move bone, from
+
+		 
+		 */
+
+		/*bones.forEach((bone, i) => {
 			let startPoint = new FIK.V3(0,0,0).copy(bone.mesh.getWorldPosition(new THREE.Vector3()));
 			let endPoint = new FIK.V3(0,0,0).copy(bones[i+1] ? bones[i+1].mesh.getWorldPosition(new THREE.Vector3()) : null_object.getWorldCenter(false));
 
 			let ik_bone = new FIK.Bone3D(startPoint, endPoint);
+			if (bone.ik_options && Object.keys(bone.ik_options).length) {
+				let rotation_axis = new FIK.V3(1, 0, 0);
+				let reference_axis = new FIK.V3(0, 0, 1);
+				if (bone.ik_options.rotation_axis) {
+					rotation_axis.set(...bone.ik_options.rotation_axis);
+				}
+				if (bone.ik_options.reference_axis) {
+					reference_axis.set(...bone.ik_options.reference_axis);
+				}
+				ik_bone.joint.setHinge(
+					bone.ik_options.joint_type == 'hinge' ? 11 : 10,
+					rotation_axis,
+					bone.ik_options.angle_limit?.[0] ?? 180,
+					bone.ik_options.angle_limit?.[1] ?? 180,
+					reference_axis
+				)
+			}
+
 			this.chain.addBone(ik_bone);
 
 			bone_references.push({
@@ -643,17 +825,17 @@ class NullObjectAnimator extends BoneAnimator {
 			})
 		})
 
-		this.solver.add(this.chain, ik_target , true);
-		this.solver.meshChains[0].forEach(mesh => {
-			mesh.visible = false;
-		})
-
-		this.solver.update();
+		let target_fikv3 = new FIK.V3(ik_target.x, ik_target.y, ik_target.z);
+		if (null_object.ik_solve_mode == 'tight') {
+			this.chain.solveForTarget(target_fikv3);
+		} else {
+			this.chain.solveIK(target_fikv3);
+		}
 		
 		let results = {};
 		bone_references.forEach((bone_ref, i) => {
-			let start = Reusable.vec1.copy(this.solver.chains[0].bones[i].start);
-			let end = Reusable.vec2.copy(this.solver.chains[0].bones[i].end);
+			let start = Reusable.vec1.copy(this.chain.bones[i].start);
+			let end = Reusable.vec2.copy(this.chain.bones[i].end);
 			bones[i].mesh.worldToLocal(start);
 			bones[i].mesh.worldToLocal(end);
 
@@ -703,9 +885,8 @@ class NullObjectAnimator extends BoneAnimator {
 			}
 		}
 
-		this.solver.clear();
 		this.chain.clear();
-		this.chain.lastTargetLocation.set(1e9, 0, 0);
+		this.chain.lastTargetLocation.set(1e9, 0, 0);*/
 
 		if (get_samples) return results;
 	}

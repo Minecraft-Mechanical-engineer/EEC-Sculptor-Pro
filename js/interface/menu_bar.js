@@ -242,6 +242,7 @@ const MenuBar = {
 			'add_cube',
 			'add_mesh',
 			'add_group',
+			'add_billboard',
 			'add_locator',
 			'add_null_object',
 			'add_texture_mesh',
@@ -251,6 +252,7 @@ const MenuBar = {
 			'find_replace',
 			'unlock_everything',
 			'delete',
+			'apply_mirror_modeling',
 			new MenuSeparator('mesh_specific'),
 			{name: 'data.mesh', id: 'mesh', icon: 'fa-gem', children: [
 				'extrude_mesh_selection',

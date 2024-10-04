@@ -1076,6 +1076,8 @@ BARS.defineActions(function() {
 		get: function() {
 			if (Outliner.selected[0].scalable) {
 				return Outliner.selected[0].scale[0]
+			} else if (Outliner.selected[0].size instanceof Array) {
+				return Outliner.selected[0].size[0];
 			} else if (Outliner.selected[0].resizable) {
 				return Outliner.selected[0].getSize(0, true);
 			}
@@ -1101,6 +1103,8 @@ BARS.defineActions(function() {
 		get: function() {
 			if (Outliner.selected[0].scalable) {
 				return Outliner.selected[0].scale[1]
+			} else if (Outliner.selected[0].size instanceof Array) {
+				return Outliner.selected[0].size[1];
 			} else if (Outliner.selected[0].resizable) {
 				return Outliner.selected[0].getSize(1, true);
 			}
@@ -1126,6 +1130,8 @@ BARS.defineActions(function() {
 		get: function() {
 			if (Outliner.selected[0].scalable) {
 				return Outliner.selected[0].scale[2]
+			} else if (Outliner.selected[0].size instanceof Array) {
+				return Outliner.selected[0].size[2];
 			} else if (Outliner.selected[0].resizable) {
 				return Outliner.selected[0].getSize(2, true);
 			}
